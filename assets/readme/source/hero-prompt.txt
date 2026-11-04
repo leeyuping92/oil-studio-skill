@@ -1,0 +1,8 @@
+Image 1 is only a character reference: keep the same character design — a round white head with thin round black glasses, dot eyes behind the lenses, small curved eyebrows, a simple small smile, three short curved hair strands on top, circular halftone shading on the left side of the face, and a flat coral-red (#F65240) offset shadow shape behind the head. Do not copy the white rounded-square plate or the four viewfinder corner brackets from image 1.
+
+Subject: this single character as a minimal stick-figure protagonist, waist-up, body turned three-quarters toward the LEFT of the image and looking left. Thin line-drawn arms and a simple line-drawn torso. The right hand (nearer to the left edge) points confidently to the left as if presenting something; the other hand holds up a pair of open scissors with coral-red (#F65240) handles. Relaxed, confident, friendly expression. Only this one character and the scissors. No dog, no other person, no other props, no desk, no screen.
+
+Style: professional manga/comic ink illustration. Clean confident ink outlines with varying line weights, thick for contours and thin for details, not wobbly or sketchy. Use classic circular halftone screentone dot patterns for gray and shadow areas. Color usage is extremely restrained: black ink, white, gray halftone, and coral red #F65240 only on the scissors handles and the offset head shadow. No yellow. Render only the requested subject.
+Do not let halftone, ink, props, or the subject touch the image border. Keep generous padding on all sides. No text, no letters, no logo, no watermark. PNG format.
+
+Render on a genuinely transparent background with a clean alpha channel. No backdrop, floor plane, cast shadow, or opaque pixels outside the artwork.

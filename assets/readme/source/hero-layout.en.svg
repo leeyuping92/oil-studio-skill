@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">oil-studio Agent Skill</title>
+  <desc id="desc">Ask your agent once, and it uses Oil Studio to remove retakes, slips and pauses from a screen recording, then hands the changes to you as a proposal to apply in the app.</desc>
+
+  <defs>
+    <pattern id="removed" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="#232428"/>
+      <rect width="2" height="8" fill="#3A3B40"/>
+    </pattern>
+    <clipPath id="canvas"><rect width="1200" height="420" rx="24"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#canvas)">
+    <rect width="1200" height="420" fill="#F7F6F3"/>
+
+    <!-- Viewfinder corners and the recording dot, taken from the app icon. -->
+    <g id="viewfinder" fill="none" stroke="#141414" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 82 V48 Q32 32 48 32 H82"/>
+      <path d="M1118 32 H1152 Q1168 32 1168 48 V82"/>
+      <path d="M32 338 V372 Q32 388 48 388 H82"/>
+      <path d="M1118 388 H1152 Q1168 388 1168 372 V338"/>
+    </g>
+    <circle cx="1132" cy="66" r="11" fill="#F65240"/>
+
+    <g id="title-block" transform="translate(72 64)">
+      <text x="0" y="0" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#6E6F74" letter-spacing="0.5">AGENT SKILL · Claude Code · Codex</text>
+      <text x="-3" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="68" font-weight="800" fill="#141414" letter-spacing="-1.5">oil-studio</text>
+      <text x="0" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="27" font-weight="600" fill="#141414">Ask your agent once. Oil Studio cleans up the recording.</text>
+    </g>
+
+    <!-- What the user says to the agent. -->
+    <g id="prompt" transform="translate(72 214)">
+      <rect width="660" height="52" rx="26" fill="#FFFFFF" stroke="#141414" stroke-width="2.5"/>
+      <text x="26" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#F65240">›</text>
+      <text x="50" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="20" fill="#141414">Use oil-studio to cut the retakes and pauses from this recording</text>
+    </g>
+
+    <!-- The resulting cut proposal on an Oil Studio-style timeline. -->
+    <g id="timeline" transform="translate(72 290)">
+      <rect width="756" height="98" rx="16" fill="#1C1D21"/>
+      <g transform="translate(18 46)">
+        <rect x="0"   y="0" width="150" height="34" rx="6" fill="#4A4B50"/>
+        <rect x="156" y="0" width="64"  height="34" rx="6" fill="url(#removed)"/>
+        <rect x="226" y="0" width="128" height="34" rx="6" fill="#4A4B50"/>
+        <rect x="360" y="0" width="40"  height="34" rx="6" fill="url(#removed)"/>
+        <rect x="406" y="0" width="112" height="34" rx="6" fill="#4A4B50"/>
+        <rect x="524" y="0" width="30"  height="34" rx="6" fill="url(#removed)"/>
+        <rect x="560" y="0" width="56"  height="34" rx="6" fill="#4A4B50"/>
+        <!-- Waveform hints inside kept clips. -->
+        <g stroke="#7C7D82" stroke-width="2" stroke-linecap="round">
+          <path d="M14 17 h2 M22 11 v12 M30 14 v6 M38 9 v16 M46 13 v8 M54 15 v4 M62 10 v14 M70 13 v8 M78 16 v2 M86 11 v12 M94 14 v6 M102 9 v16 M110 15 v4 M118 12 v10 M126 14 v6 M134 11 v12"/>
+          <path d="M240 13 v8 M248 10 v14 M256 15 v4 M264 9 v16 M272 13 v8 M280 11 v12 M288 15 v4 M296 10 v14 M304 13 v8 M312 16 v2 M320 11 v12 M328 14 v6 M336 12 v10"/>
+          <path d="M420 12 v10 M428 9 v16 M436 14 v6 M444 11 v12 M452 15 v4 M460 10 v14 M468 13 v8 M476 9 v16 M484 14 v6 M492 12 v10 M500 15 v4"/>
+          <path d="M574 13 v8 M582 10 v14 M590 15 v4 M598 11 v12 M606 14 v6"/>
+        </g>
+      </g>
+      <!-- Cut tags above each removed gap. -->
+      <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#E8E8EA">
+        <rect x="128" y="10" width="120" height="28" rx="14" fill="#2B2C30" stroke="#55565B"/>
+        <text x="188" y="30" text-anchor="middle">Retake −3.2s</text>
+        <rect x="318" y="10" width="120" height="28" rx="14" fill="#2B2C30" stroke="#55565B"/>
+        <text x="378" y="30" text-anchor="middle">Pause −1.4s</text>
+        <rect x="480" y="10" width="120" height="28" rx="14" fill="#2B2C30" stroke="#55565B"/>
+        <text x="540" y="30" text-anchor="middle">Slip −0.8s</text>
+      </g>
+      <!-- Review action: changes wait for the user's confirmation. -->
+      <g transform="translate(648 30)">
+        <rect width="92" height="40" rx="10" fill="#F7F6F3"/>
+        <text x="46" y="27" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" font-weight="700" fill="#141414">Apply</text>
+      </g>
+      <!-- Playhead: brand red only marks "now". -->
+      <rect x="430" y="40" width="3" height="48" rx="1.5" fill="#F65240"/>
+    </g>
+
+    <!-- Generated subject: the brand character with scissors, pointing at the proposal. -->
+    <g id="subject">
+      <image href="hero-subject.png" xlink:href="hero-subject.png" x="812" y="40" width="328" height="492"/>
+    </g>
+  </g>
+</svg>
