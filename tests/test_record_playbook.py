@@ -310,6 +310,23 @@ class RecordingSafetyTests(unittest.TestCase):
             "0.500000,0.500000", "--id", "play-intro-1")
         browser_call.assert_not_called()
 
+    def test_input_action_clicks_field_and_types_progressively(self):
+        run_cli = mock.Mock()
+        point = {"u": 0.25, "v": 0.75, "viewX": 250, "viewY": 750}
+        with mock.patch.object(stage_browser, "selector_point", return_value=point), \
+                mock.patch.object(stage_browser, "browser_call") as browser_call, \
+                mock.patch.object(stage_browser.time, "sleep"):
+            stage_browser.run_action("oilstudio", "space", window(), {"id": "form"}, 1,
+                {"action": "input", "selector": "#title", "value": "Oil Studio", "durationMs": 400},
+                False, run_cli)
+        run_cli.assert_called_once_with("oilstudio", "record", "click", "--at-fraction",
+            "0.250000,0.750000", "--id", "play-form-2")
+        browser_call.assert_called_once()
+        script = browser_call.call_args.args[1]
+        self.assertIn("await page.click(data.selector", script)
+        self.assertIn("Array.from(String(data.to ?? data.value ?? \"\"))", script)
+        self.assertIn("KeyboardEvent(\"keydown\"", script)
+
 
 class LocalizationTests(unittest.TestCase):
     def test_catalog_is_bilingual_and_every_template_renders(self):

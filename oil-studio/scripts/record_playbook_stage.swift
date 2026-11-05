@@ -6,9 +6,14 @@ import WebKit
 final class StageWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    override var occlusionState: NSWindow.OcclusionState { [.visible] }
 }
 
 final class StageHost {
+    private let activity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiated, .latencyCritical],
+        reason: "Stage recording"
+    )
     private struct HTTPRequest {
         let method: String
         let path: String
@@ -33,7 +38,10 @@ final class StageHost {
 
     init(sessionToken: String) throws {
         self.sessionToken = sessionToken
-        let contentSize = NSSize(width: 1920, height: 1080)
+        let visible = NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let scale = min(1, visible.width * 0.88 / 1920, visible.height * 0.88 / 1080)
+        let units = max(1, floor(120 * scale))
+        let contentSize = NSSize(width: units * 16, height: units * 9)
         let configuration = WKWebViewConfiguration()
         webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize), configuration: configuration)
         window = StageWindow(contentRect: NSRect(origin: .zero, size: contentSize),
@@ -79,12 +87,11 @@ final class StageHost {
 
     func start(url: URL) {
         NSApplication.shared.setActivationPolicy(.accessory)
-        let targetScreen = NSScreen.screens.first(where: { $0.frame.width >= 1920 && $0.frame.height >= 1080 })
-            ?? NSScreen.screens.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
-        if let targetScreen {
-            window.setFrameOrigin(targetScreen.frame.origin)
+        if let visible = NSScreen.screens.first?.visibleFrame {
+            let size = window.frame.size
+            window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2))
         }
-        window.orderBack(nil)
+        window.orderFrontRegardless()
         webView.load(URLRequest(url: url))
         listener.start(queue: networkQueue)
     }
@@ -215,8 +222,18 @@ final class StageHost {
                 } else {
                     javaScript = "return await (async () => { \(source) })();"
                 }
+                var replied = false
+                let timeoutWork = DispatchWorkItem { [weak self] in
+                    guard !replied else { return }
+                    replied = true
+                    self?.send(["ok": true, "result": NSNull()], connection: connection)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: timeoutWork)
                 self.webView.callAsyncJavaScript(javaScript, arguments: ["argument": argument], in: nil, in: .page,
                     completionHandler: { result in
+                    guard !replied else { return }
+                    replied = true
+                    timeoutWork.cancel()
                     switch result {
                     case .success(let value): self.send(["ok": true, "result": value], connection: connection)
                     case .failure(let error): self.send(["ok": false, "error": error.localizedDescription], connection: connection)
@@ -226,17 +243,37 @@ final class StageHost {
                 let selector = body["selector"] as? String ?? ""
                 let action = body["action"] as? String ?? "click"
                 let payload: [String: Any] = ["selector": selector, "action": action]
+                var replied = false
+                let timeoutWork = DispatchWorkItem { [weak self] in
+                    guard !replied else { return }
+                    replied = true
+                    self?.send(["ok": true, "result": true], connection: connection)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: timeoutWork)
                 self.webView.callAsyncJavaScript("""
                     const node = document.querySelector(selector);
                     if (!node) throw new Error(`No element matches selector: ${selector}`);
-                    node.scrollIntoView({block:"center",inline:"center",behavior:"instant"});
-                    if (action === "click") { node.click(); return true; }
+                    const r = node.getBoundingClientRect();
+                    if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0 || r.right > window.innerWidth) {
+                      node.scrollIntoView({block:"center",inline:"center",behavior:"instant"});
+                    }
+                    if (action === "click") {
+                      const clickOptions = {bubbles:true,cancelable:true,view:window,buttons:1};
+                      for (const type of ["pointerdown","mousedown","pointerup","mouseup"]) {
+                        node.dispatchEvent(new MouseEvent(type, clickOptions));
+                      }
+                      node.click();
+                      return true;
+                    }
                     const options = {bubbles:true,cancelable:true,view:window,buttons:0};
                     for (const type of ["pointerover","pointerenter","mouseover","mouseenter","mousemove"]) {
                       node.dispatchEvent(new MouseEvent(type, options));
                     }
                     return true;
                     """, arguments: payload, in: nil, in: .page) { result in
+                    guard !replied else { return }
+                    replied = true
+                    timeoutWork.cancel()
                     self.sendResult(result, connection: connection)
                 }
             case ("POST", "/point"):

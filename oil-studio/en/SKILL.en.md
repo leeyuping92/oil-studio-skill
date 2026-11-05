@@ -9,7 +9,7 @@ description: >
   an app demonstration, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
 metadata:
-  version: 0.9.6
+  version: 0.9.8
   minAppVersion: 0.3.15
 ---
 
@@ -23,7 +23,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.6 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.8 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.
@@ -66,7 +66,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 - `subtitles generate` creates and saves undoable captions through the app without a proposal. `transcribe` only prepares a transcript cache.
 - `chapters apply` always applies directly, regardless of the project's automatic-edit preference or chapter review. `autoApplied: false` means the project is closed, not ready, or queued behind another review; follow `pendingReason` and never describe it as waiting for chapter approval.
 - Locate edits with utterance IDs such as `U0012` or source-time milliseconds. Never use output time for cuts or zooms. Layout proposals explicitly use output time.
-- After each step, run `oilstudio progress "<completed step>" --step <step>/<total> --project <project>`. `delivered: false` means the app is closed; continue.
+- During intermediate steps before submitting final changes or finishing export, run `oilstudio progress "<completed step>" --step <step>/<total> --project <project>`; do not call `oilstudio progress` again after the final submission or completion. `delivered: false` means the app is closed; continue.
 - Use a new temporary filename for each `--out`; existing files are not overwritten.
 - Validate before submitting. Fix rejected entries and validate again. `plan validate` checks submitted entries, not candidates omitted from the plan.
 - When the user returns with a continuation, correction, or status question, check the saved proposal status first. If applied, resume already-authorized work from current project data without asking for authorization again. Preserve pending work while review continues. Never resubmit `USER_DISMISSED` automatically. For invalidated proposals, fetch fresh evidence instead of copying new fingerprints onto an old plan.
@@ -83,15 +83,16 @@ For multi-step web demonstrations that need beat-aligned captions, analysis card
    - Only the user may grant macOS screen-recording access and Oil Studio's permission for agents to start recording. Never click these approval dialogs or change system settings yourself.
    - On `PERMISSION_REQUIRED`, report `message` and stop. Resume from this step after the user confirms access.
    - Ask if multiple windows fit. Record only the requested window; choose a display only when explicitly requested.
-4. Run `oilstudio record start --source <id>`. Microphone, camera, and system audio remain off unless explicitly requested with `--microphone`, `--camera`, or `--system-audio`.
+4. Optionally run `oilstudio record prepare --source <id> --size 1280x800 --center --activate`; use either `--position X,Y` or `--center`. The same options work on `record start`. Adjusting an external window requires Accessibility access.
+5. Run `oilstudio record start --source <id>`. Microphone, camera, and system audio remain off unless explicitly requested with `--microphone`, `--camera`, or `--system-audio`.
    - On `RECORDER_BUSY`, explain that the user is recording and stop.
-5. Operate the target. Waits can be removed later.
-   - Before every click, run `oilstudio record click --at <x>,<y>` or `--at-fraction <u>,<v>`, then click immediately after the command returns. Oil Studio generates the cursor from these reports; the real mouse is not recorded. Without a report, there is no cursor or click-following zoom for that action.
-   - To point without clicking, use `oilstudio record move` with the same coordinates. See Recording for coordinate conversion.
-6. Run `oilstudio record stop` and keep `path`. To restart a bad take, use `oilstudio record stop --discard`, then return to step 2.
-7. Follow Remove idle time.
-8. Follow Adjust zooms for small text or details; Export video when requested.
-9. Report the project path, output duration, and idle time removed.
+6. Operate the target. Waits can be removed later.
+   - Before every click, run `oilstudio record click --at <x>,<y>` or `--at-fraction <u>,<v>`, then click immediately after the command returns. Add `--perform` to have Oil Studio perform the native click without a second click. Oil Studio generates the cursor from these reports; the real mouse is not recorded. Without a report, there is no cursor or click-following zoom for that action.
+   - To point without clicking, use `oilstudio record move` with the same coordinates; add `--perform` to move the real pointer too. See Recording for coordinate conversion.
+7. Run `oilstudio record stop` and keep `path`. To restart a bad take, use `oilstudio record stop --discard`, then return to step 2.
+8. Follow Remove idle time.
+9. Follow Adjust zooms for small text or details; Export video when requested.
+10. Report the project path, output duration, and idle time removed.
 
 Do not send `progress` during recording, before a project path exists. Resume progress reporting after stopping.
 
@@ -99,7 +100,7 @@ Do not send `progress` during recording, before a project path exists. Resume pr
 
 Use for silent demonstrations or long waits between operations. For voice-overs, prefer Tighten pauses or Fine cut.
 
-- For a project you just recorded, run `oilstudio idle <project> --submit` directly. It returns candidates and applied changes together.
+- For a project you just recorded, run `oilstudio idle <project> --submit` directly. It returns candidates and applied changes together, aligns delayed click reports to screen changes, and rebuilds automatic zooms using the edited timeline and changed areas.
 - For other projects, run `oilstudio idle <project>`, report the count and possible saving, then add `--submit` with the same parameters after authorization.
 - Increase `--keep <milliseconds>` to retain more time at each gap's edges; default 400. Increase `--threshold <milliseconds>` to remove only longer waits; default 1500.
 - Report according to `autoApplied`. No candidates means no submission and no `proposalId`.

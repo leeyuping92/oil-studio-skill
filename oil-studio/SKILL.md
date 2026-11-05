@@ -7,7 +7,7 @@ description: >
   用户提到 Oil Studio、录屏工程，或要求录一段操作演示、剪掉录屏里的重说口误、调整录屏的缩放、拿到或校对录屏的字幕、导出录屏成片时使用。
   不用于普通 MP4/MOV 视频文件的剪辑或加字幕，也不用于直接编辑工程目录里的文件。
 metadata:
-  version: 0.9.6
+  version: 0.9.8
   minAppVersion: 0.3.15
 ---
 
@@ -21,7 +21,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.6 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.8 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。
@@ -64,7 +64,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 - `subtitles generate` 是生成并保存字幕的 App 操作，完成后可撤销，不经过提案确认；它不同于只生成转录缓存的 `transcribe`。
 - `chapters apply` 始终直接应用，不受工程的自动应用开关影响，也不需要章节确认。`autoApplied: false` 只表示工程未打开、尚未就绪或排在另一个审阅后；按 `pendingReason` 续接，不把它说成等待章节确认。
 - 时间只用发言编号（如 `U0012`）或源时间毫秒（`sourceStartMs` 这类字段），剪切与缩放不用成片时间；布局、导出范围明确使用成片时间。
-- 每完成一个步骤，运行一次 `oilstudio progress "<这一步做了什么>" --step <第几步>/<总步数> --project <工程>`，让用户在 App 里看到进度。返回 `delivered: false` 表示 App 没开，继续工作即可。
+- 在提交最终修改或完成导出之前的中间步骤，每完成一步运行一次 `oilstudio progress "<这一步做了什么>" --step <第几步>/<总步数> --project <工程>`，让用户在 App 里看到进度；最终修改已提交或整项任务完成后不要再调用 `oilstudio progress`。返回 `delivered: false` 表示 App 没开，继续工作即可。
 - `--out` 写临时文件时每次用新文件名（例如加上步骤编号）；命令不会覆盖已有文件。
 - 提交前必须先校验；校验不通过就修正后再校验，不要跳过。`plan validate` 只检查提交条目是否可执行，不会发现没有写进方案的漏删。
 - 用户回来继续、纠正或询问进度时，先查已保存的 `proposal status`。若已 `applied`，基于当前工程自动续做已授权任务，不重复索要确认；若仍在审阅，保留待办。`USER_DISMISSED` 不自动重提；工程变化导致失效时重新取证，不把新指纹直接贴进旧方案。
@@ -81,17 +81,18 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
    - 录制要过两道授权，都只能由用户完成：macOS 的屏幕录制权限（给 Oil Studio），以及 Oil Studio 里的"允许 AI Agent 发起录制"。第一次使用时 Oil Studio 会弹出确认框，命令会等用户点"允许"；不要自己去点这个确认框，也不要去改系统设置。
    - 返回 `PERMISSION_REQUIRED`：把 `message` 原样告诉用户（它写明了缺哪一项），这一轮到此停止。用户说已经授权后，再从这一步重新开始。
    - 有多个窗口都像目标：列出来请用户选。只录用户要的那个窗口；用户没说录整块屏幕就不要选屏幕。
-4. 运行 `oilstudio record start --source <id>`。默认不录麦克风、摄像头和系统声音；用户明确要求时才加 `--microphone`、`--camera`、`--system-audio`。
+4. 可先运行 `oilstudio record prepare --source <id> --size 1280x800 --center --activate` 调整窗口；`--position X,Y` 与 `--center` 二选一。也可将这些参数直接加到 `record start`。调整外部窗口需要辅助功能权限。
+5. 运行 `oilstudio record start --source <id>`。默认不录麦克风、摄像头和系统声音；用户明确要求时才加 `--microphone`、`--camera`、`--system-audio`。
    - `RECORDER_BUSY`：用户正在自己录制，告诉用户后停止。
-5. 按计划操作被录的窗口。不用赶时间，操作之间的等待稍后会剪掉。
-   - **每次点击前先申报**：`oilstudio record click --at <x>,<y>`（或 `--at-fraction <u>,<v>`），命令返回后立刻去点。成片里的光标是 Oil Studio 按你的申报生成的，你的真实鼠标不会被录进去；不申报，那一步就没有光标，也没有跟随点击的缩放。
-   - 想让观众看某个地方但不点（悬停、指一下）：`oilstudio record move`，参数相同。
+6. 按计划操作被录的窗口。不用赶时间，操作之间的等待稍后会剪掉。
+   - **每次点击前先申报**：`oilstudio record click --at <x>,<y>`（或 `--at-fraction <u>,<v>`），命令返回后立刻去点；加 `--perform` 可由 Oil Studio 原生执行点击，不再额外点击。成片里的光标是 Oil Studio 按你的申报生成的，你的真实鼠标不会被录进去；不申报，那一步就没有光标，也没有跟随点击的缩放。
+   - 想让观众看某个地方但不点（悬停、指一下）：`oilstudio record move`，参数相同；加 `--perform` 可同时移动真实光标。
    - 位置怎么给见 [录制](references/recording.md) 的"申报位置"。
-6. 运行 `oilstudio record stop`，记下返回的 `path`。
+7. 运行 `oilstudio record stop`，记下返回的 `path`。
    - 录坏了想重来：`oilstudio record stop --discard`，回到第 2 步。
-7. 按"删除空档"处理这个工程。
-8. 需要让观众看清小字或细节时，按"调整缩放"处理；用户要成片时按"导出成片"处理。
-9. 汇报：工程路径、成片时长、删了多少空档。
+8. 按"删除空档"处理这个工程。
+9. 需要让观众看清小字或细节时，按"调整缩放"处理；用户要成片时按"导出成片"处理。
+10. 汇报：工程路径、成片时长、删了多少空档。
 
 录制过程中不用运行 `oilstudio progress`（这时还没有工程）；停止录制拿到 `path` 之后的步骤再照常汇报进度。
 
@@ -99,7 +100,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 用于没有口播的录屏，或操作之间等待很长的录屏。有口播的录屏优先用"收紧停顿"或"精剪"。
 
-- 你自己刚录的工程：直接运行 `oilstudio idle <工程> --submit`，返回里同时有找到的空档和应用结果，不用先单独查一遍。
+- 你自己刚录的工程：直接运行 `oilstudio idle <工程> --submit`，返回里同时有找到的空档和应用结果，不用先单独查一遍；它会将延迟的点击申报对齐到画面响应，并结合剪辑和变化区域重构自动缩放。
 - 其他工程：先运行 `oilstudio idle <工程>`，把找到几处、能缩短多少告诉用户；用户同意后再加 `--submit`（其余参数相同）。
 - 想保留更多等待：加大 `--keep <毫秒>`（每处空档两端保留的时间，默认 400）；只想删长等待：加大 `--threshold <毫秒>`（默认 1500）。
 - 提交后按共同规则里的 `autoApplied` 汇报。没有找到空档时不会提交任何东西，返回里也没有 `proposalId`。

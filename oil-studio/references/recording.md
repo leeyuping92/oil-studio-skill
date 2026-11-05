@@ -6,19 +6,19 @@
 
 ## 分工
 
-- `oilstudio record` 只负责选来源、开始、暂停、停止。它不会替你点击或输入。
+- `oilstudio record` 负责准备窗口与控制录制；点击和移动可选择用 `--perform` 原生执行。输入文字仍由你的工具完成。
 - 操作被录的应用用你自己的工具：Computer Use、浏览器工具等。你没有这类工具时，告诉用户"我可以替你开始和停止录制，操作需要你来做"，由用户决定是否继续。
 
 ## 录之前
 
 - 先和用户确认要演示什么、从哪个画面开始、到哪一步结束。步骤多于十步时先把步骤列给用户看。
-- 把窗口调到合适的大小并放在最前面。窗口被其他窗口挡住也能录到，但你自己的工具通常需要它在最前面才能操作。
+- 用 `oilstudio record prepare --source <id> --size 1280x800 --center --activate` 调整窗口，也可把 `--size`、`--position X,Y`、`--center`、`--activate` 加到 `record start`。`--position` 与 `--center` 互斥；调整外部窗口需要辅助功能权限。窗口被其他窗口挡住也能录到，但你自己的工具通常需要它在最前面才能操作。
 - 关掉或移开会弹出通知、会出现在被录窗口里的无关内容。
 - 只录用户要的那个窗口。不要录整块屏幕，除非用户明确要求；不要去录聊天、邮件这类无关的窗口。
 
 ## 申报位置
 
-成片里的光标和点击来自你的申报，不来自真实鼠标。每次点击前运行 `oilstudio record click`，返回后立刻执行点击；两者隔得越短，成片里"按下"和界面变化衔接得越自然。
+成片里的光标和点击来自你的申报，不来自真实鼠标。每次点击前运行 `oilstudio record click`，返回后立刻执行点击；或给 `record click` 加 `--perform`，由 Oil Studio 同时执行原生点击，不要再点一次。`record move --perform` 同时移动真实光标。原生操作需要辅助功能权限。
 
 位置给目标元素的中心，两种写法任选：
 
@@ -60,7 +60,7 @@
 
 ## 录完之后
 
-1. `oilstudio idle <工程> --submit`：删掉操作之间的等待。你自己录的工程会直接生效。
+1. `oilstudio idle <工程> --submit`：删掉操作之间的等待，并对齐延迟点击、按保留片段与画面变化区域重构自动缩放。你自己录的工程会直接生效。
 2. 想确认结果：`oilstudio context <工程> --out <临时文件>` 看新的时长和片段；用 `oilstudio frame <工程> --output-ms <毫秒> --out <png>` 抽查几个时刻。
 3. 自动生成的缩放跟随你申报的点击。画面上的小字看不清，或某一步没有申报而需要推近时，按 SKILL.md 的"调整缩放"补充或修改。
 4. 用户要成片：`oilstudio export <工程> --out <路径.mp4>`。
@@ -93,7 +93,7 @@ Playbook JSON 形状如下：
         "pills": [{"label": "步骤", "value": "01", "color": "#F5D46B"}],
         "position": "top-right"
       },
-      "zoom": {"level": 1.5, "selector": "[data-demo=overview]", "transition": "smooth"},
+      "zoom": {"level": 1.26, "selector": "[data-demo=overview]", "transition": "smooth"},
       "actions": [
         {"action": "open", "url": "https://example.com"},
         {"action": "click", "selector": "[data-demo=overview]"},
@@ -118,3 +118,5 @@ Playbook JSON 形状如下：
 - 对 CSS 点击或悬停，脚本先滚入视口并测量元素中心，调用 `record click --at-fraction` 或 `record move --at-fraction` 后马上触发真实网页动作。显式 `fraction:{u,v}` 按整个录制窗口比例理解，并换算成网页视口里的鼠标位置；CSS 元素中心则会把地址栏和标题栏等偏移计入窗口比例。
 - 完成录制后，脚本按需调用 `settings apply`，为所有缩放生成带当前指纹的方案并执行 `plan validate` / `plan submit`，再用 `subtitles apply` 写入每拍字幕。`--export` 会运行 `export --subtitles burn`；若任何提案返回 `autoApplied:false`，脚本将跳过导出并在报告里保留待办。出错时会尝试放弃未完成的录制。
 - `--dry-run` 只验证 JSON 字段与结构，不启动浏览器、App 或录制。`--out-report` 可写出匹配窗口、字幕源时间、缩放方案、提案回执和导出结果。
+
+`PERMISSION_REQUIRED` 表示缺少录制或辅助功能授权；窗口匹配不唯一、目标被遮挡或窗口拒绝调整返回 `VALIDATION_FAILED`。

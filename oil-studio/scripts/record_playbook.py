@@ -431,6 +431,10 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         report["phases"].append("nativeWindowTitleMatched")
 
         settings = book.setdefault("settings", {})
+        transitions = settings.setdefault("transitions", {})
+        if isinstance(transitions, dict):
+            transitions.setdefault("style", "dissolve")
+            transitions.setdefault("spanMs", 250)
         if stage_host is not None:
             style = settings.setdefault("style", {})
             require(isinstance(style, dict), "stageStyleObject")
@@ -490,7 +494,9 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         recording = True
         report["phases"].append("recording")
         cue_ranges: list[dict[str, Any]] = []
+        chapter_rows: list[dict[str, Any]] = []
         zoom_rows: list[dict[str, Any]] = []
+        has_recorded_intents = False
         preopened = True
         for beat_index, beat in enumerate(book["beats"]):
             current_source = pick_source(run_cli(args.cli, "record", "sources").get("sources", []), source_match)
@@ -499,6 +505,8 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             inject_hud(space, beat.get("hud"), page_ref)
             start = active_recording_status(recording_cli)["durationSourceMs"]
             for index, action in enumerate(beat.get("actions", [])):
+                if action.get("action", action.get("type")) in ("click", "move", "input"):
+                    has_recorded_intents = True
                 active_recording_status(recording_cli)
                 run_action(args.cli, space, source, beat, index, action,
                     preopened and beat_index == 0 and index == 0, run_cli, page_ref,
@@ -520,6 +528,8 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             end = active_recording_status(recording_cli)["durationSourceMs"]
             require(end > start, "beatZeroDuration", identifier=beat["id"])
             cue_ranges.append({"id": beat["id"], "sourceStartMs": start, "sourceEndMs": end, "text": beat["subtitle"]})
+            if isinstance(beat.get("chapter"), str) and beat["chapter"].strip():
+                chapter_rows.append({"title": beat["chapter"].strip(), "sourceStartMs": 0 if beat_index == 0 else start})
             if point is not None:
                 zoom = beat["zoom"]
                 zoom_rows.append({"action": "add", "sourceStartMs": start, "sourceEndMs": end,
@@ -539,6 +549,10 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         with tempfile.TemporaryDirectory(prefix="oil-studio-playbook-") as temporary:
             temp = Path(temporary)
             pending = False
+            if has_recorded_intents and not zoom_rows:
+                idle_result = run_cli(args.cli, "idle", project, "--threshold", "1000", "--keep", "350", "--submit", timeout=600)
+                report["idleSubmission"] = idle_result
+                pending |= idle_result.get("autoApplied") is False and bool(idle_result.get("pauses"))
             if book.get("settings"):
                 settings_file = temp / "settings.json"
                 settings_file.write_text(json.dumps({"schemaVersion": 1, "settings": book["settings"]}, ensure_ascii=False), encoding="utf-8")
@@ -579,6 +593,12 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             result = run_cli(args.cli, "subtitles", "apply", project, str(subtitles_file))
             report["subtitleSubmission"] = result
             pending |= result.get("autoApplied") is False
+            if chapter_rows:
+                chapters_file = temp / "chapters.json"
+                chapters_file.write_text(json.dumps({"schemaVersion": 1, "chapters": chapter_rows}, ensure_ascii=False), encoding="utf-8")
+                chapter_result = run_cli(args.cli, "chapters", "apply", project, str(chapters_file))
+                report["chapterSubmission"] = chapter_result
+                pending |= chapter_result.get("autoApplied") is False
             report["cues"] = cue_ranges
             report["zooms"] = plan_zooms if zoom_rows else []
             if args.export:
@@ -586,7 +606,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                     report["export"] = {"skipped": True, "reason": message("exportPendingReason")}
                 else:
                     export_path = str(args.export.expanduser())
-                    report["export"] = run_cli(args.cli, "export", project, "--out", export_path, "--subtitles", "burn", timeout=3600)
+                    report["export"] = run_cli(args.cli, "export", project, "--out", export_path, "--subtitles", "burn", "--overwrite", timeout=3600)
         keep_label = browser_state.get("pageLabel")
         browser_call(space, f'await page.evaluate(() => document.querySelector("[data-oilstudio-playbook-hud]")?.remove()); await task.finish({{ keep: [{json.dumps(keep_label)}] }}); return true;', page_ref=page_ref)
         report["ok"] = True

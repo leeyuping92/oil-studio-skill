@@ -4,18 +4,18 @@ Return to [SKILL.md](../SKILL.en.md).
 
 For a multi-beat web demonstration with captions, analysis cards, or aligned zooms, use [Web playbooks](#web-playbooks). The script controls pages through the browser automation Node API only; never use Computer Use in this workflow.
 
-`oilstudio record` selects a source and starts, pauses, resumes, or stops recording. Operate the target through your own computer/browser tools. Without such tools, explain that you can control recording but the user must operate the target, and let the user decide whether to proceed.
+`oilstudio record` prepares a window and controls recording. Add `--perform` to click or move natively; use your own computer/browser tools for typing and other actions. Without such tools, explain that you can control recording but the user must operate the target, and let the user decide whether to proceed.
 
 ## Prepare
 
 - Confirm the subject and opening/ending states. Show a plan first for more than ten steps.
-- Size and foreground the target window. Oil Studio can capture an occluded window, but your control tools may need it in front.
+- Prepare the window with `oilstudio record prepare --source <id> --size 1280x800 --center --activate`, or pass these options to `record start`. Use either `--position X,Y` or `--center`. External window adjustments require Accessibility access. Oil Studio can capture an occluded window, but your control tools may need it in front.
 - Move unrelated content and notifications out of the target.
 - Record only the requested window. Never select a display without an explicit request or capture unrelated chat/email windows.
 
 ## Report positions
 
-The output cursor comes from your reports, not the real mouse. Before each click run `oilstudio record click`, then click as soon as the command returns.
+The output cursor comes from your reports, not the real mouse. Before each click run `oilstudio record click`, then click as soon as the command returns. Alternatively add `--perform` to perform the native click and do not click again; `record move --perform` also moves the real pointer. Native actions require Accessibility access.
 
 - `--at <x>,<y>` uses screen points, the same coordinate system as `record sources` fields `x`, `y`, `width`, and `height`. Reuse the coordinates used by your screen control tool.
 - `--at-fraction <u>,<v>` uses 0–1 fractions of the captured window: divide target x/y by screenshot width/height. The screenshot must contain exactly that window, including its title bar.
@@ -51,7 +51,7 @@ If your control tool fails and cannot continue, run `oilstudio record stop` or `
 
 ## Afterward
 
-1. Run `oilstudio idle <project> --submit`. Changes to recordings you made are applied immediately.
+1. Run `oilstudio idle <project> --submit`. It aligns delayed click reports, rebuilds automatic zooms from retained slices and changed regions, and immediately applies changes to recordings you made.
 2. Inspect the new duration/clips with `oilstudio context <project> --out <temporary-file>` and sample frames with `oilstudio frame <project> --output-ms <milliseconds> --out <png>`.
 3. Generated zooms follow reported clicks. Follow Adjust zooms for small text or actions lacking reports.
 4. When requested, run `oilstudio export <project> --out <path.mp4>`.
@@ -84,3 +84,5 @@ Command help, validation messages, and runtime errors use `OILSTUDIO_LANGUAGE` (
 Supported actions are `open:{url}`, `click` / `move` with `selector` or window-relative `fraction:{u,v}`, `scroll` with `y` or `selector` and optional `durationMs`, `input` with `selector,value` or `selector,from,to,durationMs`, `eval:{script}`, `wait:{ms}`, and `mark`. Selectors are CSS selectors in the page DOM. Before a selector click or hover, the script measures its center, reports the point with `record click` or `record move`, then dispatches the real page action. Explicit fractions use the full captured window and are converted to viewport coordinates. Scroll and numeric input transitions are animated in the page.
 
 The script samples `record status.durationSourceMs` around each beat to create source-time captions. It applies optional settings, builds a fingerprinted zoom proposal and runs `plan validate` / `plan submit`, then calls `subtitles apply` with the cue track. `--export` runs `export --subtitles burn` only if every change was directly applied; otherwise it records the pending result and skips export. On failure, it attempts to discard an unfinished take. `--dry-run` validates the playbook without opening a browser or starting recording; `--out-report` writes source matching, cue ranges, proposals, and export status.
+
+`PERMISSION_REQUIRED` means recording or Accessibility permission is missing. Ambiguous windows, occluded targets, and rejected geometry changes return `VALIDATION_FAILED`.

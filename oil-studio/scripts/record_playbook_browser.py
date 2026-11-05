@@ -361,7 +361,11 @@ console.log(JSON.stringify(result));
         except json.JSONDecodeError as exc:
             parse_error = exc
     if not parsed:
-        reason = type(parse_error).__name__ if parse_error else message("emptyOutput")
+        stderr_lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+        if result.returncode != 0 and stderr_lines:
+            reason = stderr_lines[0]
+        else:
+            reason = type(parse_error).__name__ if parse_error else message("emptyOutput")
         raise ValueError(message("browserInvalidJSON", reason=reason, code=result.returncode))
     if result.returncode != 0:
         raise ValueError(message("browserOperationFailed", code=result.returncode))
@@ -455,22 +459,64 @@ def selector_point(space: Any, selector: str, source: dict[str, Any], scroll: bo
     enter_beat: Optional[int] = None, page_ref: str = "p1") -> dict[str, float]:
     data = {"selector": selector, "enterBeat": enter_beat}
     measured = browser_call(space, f'''const input = {json.dumps(data, ensure_ascii=False)};
-const rect = await page.evaluate(async (input) => {{
-  if (input.enterBeat !== null) {{
-    if (typeof window.enterBeat !== "function") throw new Error({js_message("stageControllerUnavailable")});
-    window.enterBeat(input.enterBeat);
-    await new Promise(resolve => setTimeout(resolve, 420));
-  }}
-  const selector = input.selector;
+let probe = null;
+for (let attempt = 0; attempt < 65; attempt++) {{
+  await page.waitForLoadState();
+  probe = await page.evaluate((input) => {{
+    if (input.enterBeat !== null) {{
+      if (typeof window.enterBeat !== "function") return {{ missingController: true }};
+      window.enterBeat(input.enterBeat);
+    }}
+    const node = document.querySelector(input.selector);
+    if (!node) return null;
+    const r = node.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    return {{ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height, innerWidth, innerHeight, outerWidth, outerHeight }};
+  }}, input);
+  if (probe && probe.missingController) throw new Error({js_message("stageControllerUnavailable")});
+  if (probe) break;
+  await page.waitForTimeout(120);
+}}
+if (!probe) throw new Error({js_message("noElementPrefix")} + input.selector);
+if (input.enterBeat !== null) await page.waitForTimeout(420);
+if ({str(scroll).lower()} && (probe.top < 48 || probe.bottom > probe.innerHeight - 48)) {{
+  await page.evaluate(async (selector) => {{
+    const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
+    const root = document.scrollingElement || document.documentElement;
+    const element = document.querySelector(selector);
+    if (!element) return;
+    let scroller = root;
+    for (let node = element.parentElement; node; node = node.parentElement) {{
+      const style = getComputedStyle(node);
+      if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(style.overflowY)) {{ scroller = node; break; }}
+    }}
+    const r = element.getBoundingClientRect();
+    const c = scroller === root ? {{ top: 0, height: innerHeight }} : scroller.getBoundingClientRect();
+    const target = Math.max(0, scroller.scrollTop + r.top - c.top - c.height / 2 + r.height / 2);
+    const start = scroller.scrollTop, delta = target - start;
+    if (Math.abs(delta) > 8) {{
+      const begin = performance.now(), duration = 450;
+      await new Promise(resolve => {{
+        const step = now => {{
+          const t = Math.min(1, (now - begin) / duration);
+          const eased = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
+          scroller.scrollTop = start + delta * eased;
+          if (t < 1) nextFrame(step); else resolve();
+        }};
+        nextFrame(step);
+      }});
+    }}
+  }}, input.selector);
+  await page.waitForTimeout(180);
+}}
+const rect = await page.evaluate((selector) => {{
   const node = document.querySelector(selector);
   if (!node) throw new Error({js_message("noElementPrefix")} + selector);
-  if ({str(scroll).lower()}) {{ node.scrollIntoView({{ block: "center", inline: "center" }});
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }}
   const r = node.getBoundingClientRect();
   if (!{str(scroll).lower()} && (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth))
     throw new Error({js_message("zoomSelectorOutsidePrefix")} + selector);
   return {{ x: r.left + r.width / 2, y: r.top + r.height / 2, innerWidth, innerHeight, outerWidth, outerHeight }};
-}}, input);
+}}, input.selector);
 return rect;''', page_ref=page_ref)
     return to_window_point(measured, source)
 
@@ -553,6 +599,7 @@ def run_action(cli: str, space: Any, source: dict[str, Any], beat: dict[str, Any
         data = {"selector": action.get("selector"), "y": action.get("y"), "durationMs": action.get("durationMs", 600)}
         browser_call(space, f'''const data = {json.dumps(data, ensure_ascii=False)};
 await page.evaluate(async (data) => {{
+  const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
   const root = document.scrollingElement || document.documentElement;
   let element = data.selector ? document.querySelector(data.selector) : null;
   if (data.selector && !element) throw new Error({js_message("noElementPrefix")} + data.selector);
@@ -566,27 +613,52 @@ await page.evaluate(async (data) => {{
   const start = scroller.scrollTop, delta = target - start, begin = performance.now(), duration = data.durationMs;
   await new Promise(resolve => {{ const step = now => {{ const t = duration ? Math.min(1, (now - begin) / duration) : 1;
     const eased = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2; scroller.scrollTop = start + delta*eased;
-    if (t < 1) requestAnimationFrame(step); else resolve(); }}; requestAnimationFrame(step); }});
+    if (t < 1) nextFrame(step); else resolve(); }}; nextFrame(step); }});
 }}, data);
 return true;''', timeout=max(60, action.get("durationMs", 600) / 1000 + 15), page_ref=page_ref)
     elif kind == "input":
+        ensure_active()
+        point = action_point(space, action, source, page_ref)
+        ensure_active()
+        run_cli(cli, "record", "click", "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
         ensure_active()
         data = {key: action[key] for key in ("selector", "value", "from", "to", "durationMs") if key in action}
         if "to" in data:
             data.setdefault("durationMs", 800)
         browser_call(space, f'''const data = {json.dumps(data, ensure_ascii=False)};
+await page.click(data.selector, {{ label: "Playbook input action" }});
 await page.evaluate(async (data) => {{
+  const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
   const el = document.querySelector(data.selector); if (!el) throw new Error({js_message("noElementPrefix")} + data.selector);
-  const set = value => {{ const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
-    descriptor?.set ? descriptor.set.call(el, String(value)) : el.value = String(value);
-    el.dispatchEvent(new Event("input", {{ bubbles: true }})); }};
+  if (typeof el.focus === "function") el.focus();
+  const set = (value, ch) => {{ const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
+    const text = String(value);
+    descriptor?.set ? descriptor.set.call(el, text) : el.value = text;
+    try {{ if (typeof el.setSelectionRange === "function") el.setSelectionRange(text.length, text.length); }} catch {{}}
+    el.dispatchEvent(typeof InputEvent === "function" && ch ? new InputEvent("input", {{ bubbles: true, data: ch, inputType: "insertText" }}) : new Event("input", {{ bubbles: true }})); }};
   if ("to" in data && typeof data.from === "number" && typeof data.to === "number" && data.durationMs > 0) {{
     const start = performance.now(); await new Promise(resolve => {{ const step = now => {{ const t = Math.min(1, (now-start)/data.durationMs);
-      set(data.from + (data.to-data.from)*t); if (t < 1) requestAnimationFrame(step); else resolve(); }}; requestAnimationFrame(step); }});
-  }} else set(data.to ?? data.value);
+      set(data.from + (data.to-data.from)*t); if (t < 1) nextFrame(step); else resolve(); }}; nextFrame(step); }});
+  }} else {{
+    const chars = Array.from(String(data.to ?? data.value ?? ""));
+    const totalMs = typeof data.durationMs === "number" ? data.durationMs : Math.min(1600, Math.max(320, chars.length * 48));
+    if (chars.length === 0 || totalMs <= 0) {{
+      set(chars.join(""));
+    }} else {{
+      set("");
+      const stepMs = Math.max(18, Math.round(totalMs / chars.length));
+      for (let i = 1; i <= chars.length; i++) {{
+        const ch = chars[i - 1];
+        el.dispatchEvent(new KeyboardEvent("keydown", {{ key: ch, bubbles: true }}));
+        set(chars.slice(0, i).join(""), ch);
+        el.dispatchEvent(new KeyboardEvent("keyup", {{ key: ch, bubbles: true }}));
+        await new Promise(resolve => setTimeout(resolve, stepMs));
+      }}
+    }}
+  }}
   el.dispatchEvent(new Event("change", {{ bubbles: true }}));
 }}, data);
-return true;''', timeout=max(60, action.get("durationMs", 0) / 1000 + 15), page_ref=page_ref)
+return true;''', timeout=max(60, action.get("durationMs", 1600) / 1000 + 15), page_ref=page_ref)
     elif kind == "eval":
         ensure_active()
         browser_call(space, f'const value = await page.evaluate({json.dumps(action["script"], ensure_ascii=False)}); return value ?? true;', page_ref=page_ref)
