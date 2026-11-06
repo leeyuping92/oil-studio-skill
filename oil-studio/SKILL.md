@@ -7,8 +7,8 @@ description: >
   用户提到 Oil Studio、录屏工程，或要求录一段操作演示、剪掉录屏里的重说口误、调整录屏的缩放、拿到或校对录屏的字幕、导出录屏成片时使用。
   不用于普通 MP4/MOV 视频文件的剪辑或加字幕，也不用于直接编辑工程目录里的文件。
 metadata:
-  version: 0.9.10
-  minAppVersion: 0.3.15
+  version: 0.9.11
+  minAppVersion: 0.3.26
 ---
 
 # Oil Studio
@@ -21,7 +21,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.10 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.11 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。
@@ -62,6 +62,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
   - `true`：修改已经生效（你自己录的工程，或用户为这个工程打开了"AI 的修改直接生效"）。汇报 `applied` 的条数和 `skipped` 的原因，告诉用户可以在 Oil Studio 里按 ⌘Z 撤销；不需要再运行 `proposal status --wait`。
   - 提交前想知道是哪一种：看 context 的 `autoApply`。它为 true 而返回 `autoApplied: false`，说明工程没有在 Oil Studio 里打开，修改会在用户打开工程时自动生效；这时不要接着导出，先告诉用户。
 - `subtitles generate` 是生成并保存字幕的 App 操作，完成后可撤销，不经过提案确认；它不同于只生成转录缓存的 `transcribe`。
+- `narration generate / import` 生成或导入字幕配音后直接保存；已打开工程通过 App 一步撤销，离线工程检查版本后保存。详见 [字幕配音](references/narration.md)。
 - `chapters apply` 始终直接应用，不受工程的自动应用开关影响，也不需要章节确认。`autoApplied: false` 只表示工程未打开、尚未就绪或排在另一个审阅后；按 `pendingReason` 续接，不把它说成等待章节确认。
 - 时间只用发言编号（如 `U0012`）或源时间毫秒（`sourceStartMs` 这类字段），剪切与缩放不用成片时间；布局、导出范围明确使用成片时间。
 - 在提交最终修改或完成导出之前的中间步骤，每完成一步运行一次 `oilstudio progress "<这一步做了什么>" --step <第几步>/<总步数> --project <工程>`，让用户在 App 里看到进度；最终修改已提交或整项任务完成后不要再调用 `oilstudio progress`。返回 `delivered: false` 表示 App 没开，继续工作即可。
@@ -230,3 +231,5 @@ oilstudio subtitles apply "<工程>" "$WORK/05-subtitle-edits.json"
 ## 完成时
 
 用两三句话汇报：做了什么、提交了什么（附 `proposalId`）或导出了什么文件、还需要用户做什么。不要贴出整份 JSON。
+
+字幕配音：用户要求 TTS 或外部音频配音时，读取 [字幕配音](references/narration.md)，使用 `narration status / generate / import`；生成和导入直接保存，App 中一步可撤销。

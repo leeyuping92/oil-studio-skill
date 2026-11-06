@@ -9,8 +9,8 @@ description: >
   an app demonstration, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
 metadata:
-  version: 0.9.10
-  minAppVersion: 0.3.15
+  version: 0.9.11
+  minAppVersion: 0.3.26
 ---
 
 # Oil Studio
@@ -23,7 +23,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.10 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.11 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.
@@ -64,6 +64,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
   - `true`: report only the actual `applied` entries and `skipped` reasons. Explain that ⌘Z undoes changes; do not wait on `proposal status`.
   - Context's `autoApply` predicts this behavior. If it is true but submission returns `autoApplied: false`, the project is closed; changes will apply when it opens. Tell the user before exporting.
 - `subtitles generate` creates and saves undoable captions through the app without a proposal. `transcribe` only prepares a transcript cache.
+- `narration generate / import` saves caption narration directly. Changes to an open project are undoable in one step; offline projects are checked for version compatibility before saving. See [Caption narration](references/narration.md).
 - `chapters apply` always applies directly, regardless of the project's automatic-edit preference or chapter review. `autoApplied: false` means the project is closed, not ready, or queued behind another review; follow `pendingReason` and never describe it as waiting for chapter approval.
 - Locate edits with utterance IDs such as `U0012` or source-time milliseconds. Never use output time for cuts or zooms. Layout proposals explicitly use output time.
 - During intermediate steps before submitting final changes or finishing export, run `oilstudio progress "<completed step>" --step <step>/<total> --project <project>`; do not call `oilstudio progress` again after the final submission or completion. `delivered: false` means the app is closed; continue.
@@ -226,3 +227,5 @@ Read the export section of [Project settings and export](references/video-settin
 ## Finish
 
 Use two or three sentences: what changed, what was submitted with its `proposalId` or exported path, and what the user still needs to do. Do not paste the full JSON.
+
+For TTS or external caption narration, read [Caption narration](references/narration.md) and use `narration status / generate / import`. Generation and import save directly and are undoable in the app.

@@ -141,7 +141,7 @@ Copy `id` and `expectedText` exactly from `subtitles get` → `id`/`text`, never
 
 ## Whole-track captions (`subtitles apply`)
 
-A presentation without narration can submit captions authored in source time. `cues` and the `edits` format above are mutually exclusive.
+A presentation without narration can submit captions authored in source time. `cues` and the `edits` format above are mutually exclusive. Keep each cue to a single short spoken clause rather than joining two clauses into one compound caption.
 
 - Each cue is bound to the recording session containing its source-time range. A cue crossing a session boundary is split at that boundary. The first piece keeps the original ID; later pieces use a deterministic `<originalID>-session-<sessionIndex>` ID, with a numeric suffix if needed to avoid collisions. Each piece copies the original English translation.
 - A cue with no valid session interval or an ID collision is rejected rather than silently dropped. Caption display is enabled, and translations for IDs no longer present are removed.

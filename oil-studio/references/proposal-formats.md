@@ -161,6 +161,6 @@ python3 -B <Skill目录>/scripts/check_filler_coverage.py --context <当前conte
 ```
 
 - `id` 可省略；省略时由 Oil Studio 生成。时间用录屏源时间毫秒，校验前会将距离片段边界不超过 0.5 毫秒的值吸附到边界。
-- 时间须满足 `0 <= sourceStartMs < sourceEndMs <= durationSourceMs`；按起始时间升序排列，区间不能重叠；`text` 不能为空。
+- 时间须满足 `0 <= sourceStartMs < sourceEndMs <= durationSourceMs`；按起始时间升序排列，区间不能重叠；`text` 不能为空。每条字幕建议只写一句自然的口语短句（中文约 10–18 字），不要把两个分句拼成一条长字幕。
 - 校验通过后，整条字幕轨道替换为 `cues`。每项按源时间绑定到对应 recording session，并写入 `edited: true`；跨 session 的字幕在边界拆分，首段保留原 ID，后续段使用确定性的 `<原ID>-session-<sessionIndex>`（如有冲突再追加序号），各段复制原英文翻译。没有有效 session 区间或 ID 冲突会拒绝，不会静默丢弃。开启字幕显示；新轨道里 ID 相同的字幕保留原英文翻译，其余旧翻译清除。
 - 修改以字幕提案提交。Agent 自录工程会按 `autoApply` 直接应用；随后可运行 `subtitles get`、`subtitles export` 或 `export --subtitles burn`。普通文字校对继续使用 `edits`，逐项按旧字幕 ID 和 `expectedText` 核对。
