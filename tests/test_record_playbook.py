@@ -328,6 +328,150 @@ class RecordingSafetyTests(unittest.TestCase):
         self.assertIn("KeyboardEvent(\"keydown\"", script)
 
 
+class PlaybookRobustnessTests(unittest.TestCase):
+    def test_optional_subtitles_and_press_validation(self):
+        for subtitle in (None, "", "   ", "Hello"):
+            book = make_book()
+            if subtitle is None:
+                del book["beats"][0]["subtitle"]
+            else:
+                book["beats"][0]["subtitle"] = subtitle
+            book["beats"][0]["actions"].append({"action": "press", "key": "Meta+k", "selector": "#search"})
+            playbook.validate_playbook(book)
+        for key in ("", "Meta+", "Meta+Bad Key", "Command+k"):
+            with self.subTest(key=key), self.assertRaises(playbook.PlaybookError):
+                playbook.validate_action("intro", 1, {"action": "press", "key": key})
+        with self.assertRaises(playbook.PlaybookError):
+            playbook.validate_action("intro", 1, {"action": "press", "key": "Enter", "selector": ""})
+
+    def test_inspect_without_playbook_closes_stage_and_emits_data(self):
+        host = mock.Mock()
+        value = {"url": "https://example.com", "title": "Example", "viewport": {},
+            "scrollContainers": [], "interactiveElements": []}
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["record_playbook.py", "--inspect", value["url"]]), \
+                mock.patch.object(playbook.shutil, "which", return_value="/node"), \
+                mock.patch.object(playbook.StageWindowHost, "start", return_value=host), \
+                mock.patch.object(playbook, "inspect_page", return_value=value), \
+                mock.patch.object(playbook, "run_cli") as cli, contextlib.redirect_stdout(out):
+            self.assertEqual(playbook.main(), 0)
+        self.assertEqual(json.loads(out.getvalue()), value)
+        cli.assert_not_called()
+        host.close.assert_called_once()
+
+    def test_zoom_mode_contract(self):
+        book = make_book()
+        for zoom in ({"level": 1.2, "target": {"x": 0.2, "y": 0.8}},
+                     {"level": 1.2, "mode": "manual", "selector": "#x"},
+                     {"level": 1.2, "mode": "auto"}):
+            book["beats"][0]["zoom"] = zoom
+            playbook.validate_playbook(book)
+        for zoom in ({"level": 1.2, "mode": "auto", "target": {"x": 0.2, "y": 0.8}},
+                     {"level": 1.2, "mode": "auto", "selector": "#x"},
+                     {"level": 1.2, "mode": "manual"}):
+            book["beats"][0]["zoom"] = zoom
+            with self.assertRaises(playbook.PlaybookError):
+                playbook.validate_playbook(book)
+
+    def test_rehearse_runs_beats_and_zoom_without_cli(self):
+        book = make_book(browser={"host": "browser"})
+        book["beats"][0]["actions"].append({"action": "press", "key": "Enter"})
+        book["beats"][0]["zoom"] = {"level": 1.2, "selector": "#target"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "book.json"
+            path.write_text(json.dumps(book))
+            out = io.StringIO(); host = mock.Mock()
+            with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path), "--rehearse"]), \
+                    mock.patch.object(playbook.shutil, "which", return_value="/node"), \
+                    mock.patch.object(playbook.StageWindowHost, "start", return_value=host), \
+                    mock.patch.object(playbook, "wait_for_render_stability"), \
+                    mock.patch.object(playbook, "inject_hud"), \
+                    mock.patch.object(playbook, "selector_point", return_value={"u": 0.5, "v": 0.5}) as zoom, \
+                    mock.patch.object(playbook, "run_action") as action, \
+                    mock.patch.object(playbook, "run_cli") as cli, contextlib.redirect_stdout(out):
+                self.assertEqual(playbook.main(), 0)
+            self.assertTrue(json.loads(out.getvalue())["rehearsal"][0]["ok"])
+            self.assertEqual(action.call_count, 2)
+            zoom.assert_called_once()
+            cli.assert_not_called()
+            host.close.assert_called_once()
+
+    def test_explicit_browser_never_falls_back(self):
+        for browser in ({"host": "browser"}, {"host": "ego-browser"}, {"page": "user"}):
+            with self.subTest(browser=browser), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "book.json"; path.write_text(json.dumps(make_book(browser=browser)))
+                state = {"pageUrl": "https://example.com/", "pageTitle": "Example",
+                    "pageLabel": "p1", "activeTabMatchesPage": True}
+                with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path)]), \
+                        mock.patch.object(playbook.shutil, "which", return_value="/tool"), \
+                        mock.patch.object(playbook, "browser_call", return_value=state), \
+                        mock.patch.object(playbook, "run_cli", return_value={"sources": []}), \
+                        mock.patch.object(playbook.StageWindowHost, "start") as start, \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(playbook.main(), 1)
+                start.assert_not_called()
+
+    def test_missing_ego_browser_defaults_to_stage_window(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "book.json"; path.write_text(json.dumps(make_book()))
+            state = {"pageUrl": "https://example.com/", "pageTitle": "Example",
+                "pageLabel": "stage-window", "activeTabMatchesPage": True}
+            def which(cmd):
+                return None if cmd == "ego-browser" else "/tool"
+            with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path)]), \
+                    mock.patch.object(playbook.shutil, "which", side_effect=which), \
+                    mock.patch.object(playbook.StageWindowHost, "start", return_value=mock.Mock()) as start, \
+                    mock.patch.object(playbook, "browser_call", return_value=state), \
+                    mock.patch.object(playbook, "run_cli", return_value={"sources": []}), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(playbook.main(), 1)
+            start.assert_called_once()
+
+    def test_intents_and_manual_zoom_submit_in_order_without_subtitles(self):
+        for enabled, automatic in ((False, False), (True, False), (False, True)):
+            with self.subTest(enabled=enabled, automatic=automatic), tempfile.TemporaryDirectory() as directory:
+                book = make_book(browser={"host": "stage-window"})
+                book["beats"][0]["actions"].extend([{"action": "click", "selector": "#target"},
+                    {"action": "move", "selector": "#other"}, {"action": "scroll", "y": 500}])
+                book["beats"][0]["zoom"] = ({"level": 1.2, "mode": "auto"} if automatic
+                    else {"level": 1.2, "selector": "#target"})
+                if enabled:
+                    book["settings"] = {"subtitles": {"enabled": True}}
+                path = Path(directory) / "book.json"; path.write_text(json.dumps(book))
+                calls = []; submitted = []; events = []; tick = 0
+                def cli(_cli, *args, **kwargs):
+                    nonlocal tick
+                    calls.append(args)
+                    if args == ("record", "sources"): return {"sources": [window(title="Example")]}
+                    if args == ("record", "status"):
+                        tick += 1000
+                        return {"state": "recording", "durationSourceMs": tick}
+                    if args == ("record", "stop"): return {"stoppedBy": "agent", "path": "/tmp/test.oilstudio"}
+                    if args[0] == "context":
+                        Path(args[-1]).write_text(json.dumps({"projectFingerprint": "p", "contextFingerprint": "c",
+                            "zooms": [{"id": "auto", "mode": "auto", "origin": "generated", "sourceStartMs": 0, "sourceEndMs": 999999}]}))
+                    if args[:2] == ("plan", "validate"):
+                        submitted.append(json.loads(Path(args[2]).read_text()))
+                    return {"autoApplied": True}
+                state = {"pageUrl": "https://example.com/", "pageTitle": "Example", "pageLabel": "stage-window", "activeTabMatchesPage": True}
+                with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path), "--export", str(Path(directory) / "out.mp4")]), \
+                        mock.patch.object(playbook.shutil, "which", return_value="/tool"), \
+                        mock.patch.object(playbook.StageWindowHost, "start", return_value=mock.Mock()), \
+                        mock.patch.object(playbook, "browser_call", return_value=state), \
+                        mock.patch.object(playbook, "inject_hud"), mock.patch.object(playbook, "run_action", side_effect=lambda *a, **k: events.append("action")), \
+                        mock.patch.object(playbook, "selector_point", side_effect=lambda *a, **k: events.append("zoom") or {"u": 0.5, "v": 0.5}), \
+                        mock.patch.object(playbook, "run_cli", side_effect=cli), mock.patch.object(playbook.time, "sleep"), \
+                        contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(playbook.main(), 0)
+                if not automatic:
+                    self.assertEqual(events[0], "zoom")
+                self.assertLess(next(i for i, c in enumerate(calls) if c[0] == "idle"), next(i for i, c in enumerate(calls) if c[0] == "context"))
+                self.assertEqual([z["action"] for z in submitted[0]["zooms"]], ["remove", "add"])
+                self.assertEqual(submitted[0]["zooms"][1]["mode"], "auto" if automatic else "manual")
+                self.assertEqual(any(c[:2] == ("subtitles", "apply") for c in calls), enabled)
+                self.assertIn("burn" if enabled else "none", next(c for c in calls if c[0] == "export"))
+
+
 class LocalizationTests(unittest.TestCase):
     def test_catalog_is_bilingual_and_every_template_renders(self):
         for key, translations in stage_browser.MESSAGES.items():
@@ -576,6 +720,62 @@ class StageHTTPIntegrationTests(unittest.TestCase):
         state = stage_browser.browser_call(None, "return { title: await page.title(), url: await page.url() };")
         self.assertEqual(state["title"], "Stage integration page")
         self.assertEqual(state["url"], self.url)
+
+    def test_inspect_pointer_input_press_and_nested_scroll(self):
+        stage_browser.browser_call(None, '''return await page.evaluate(() => {
+  document.body.innerHTML = `<div id="scroller" style="height:300px;overflow:auto">
+    <div style="height:700px"><button id="button" style="position:sticky;top:0">Press me</button>
+    <svg width="80" height="80"><rect id="shape" x="10" y="10" width="50" height="50"/></svg>
+    <div id="edit" contenteditable="true">old</div><form id="form"><input id="search" type="search"></form></div></div>`;
+  document.body.style.overflow = "hidden";
+  window.events = []; window.submitted = 0;
+  document.querySelector("#shape").addEventListener("pointerdown", e => window.events.push({x:e.clientX,y:e.clientY,id:e.pointerId,primary:e.isPrimary,kind:e.constructor.name}));
+  document.querySelector("#shape").addEventListener("click", () => window.events.push("click"));
+  document.querySelector("#form").addEventListener("submit", e => {e.preventDefault();window.submitted++});
+  return true;
+});''')
+        data = stage_browser.inspect_page()
+        self.assertTrue(any(x["selector"] == "#scroller" for x in data["scrollContainers"]))
+        self.assertTrue(any(x["selector"] == "#button" and x["fixedOrSticky"] for x in data["interactiveElements"]))
+        self.host._request("POST", "/selector", {"selector": "#shape", "action": "click"})
+        events = stage_browser.browser_call(None, 'return await page.evaluate(() => window.events);')
+        self.assertEqual(events[0]["kind"], "PointerEvent")
+        self.assertEqual((events[0]["id"], events[0]["primary"]), (1, True))
+        self.assertGreater(events[0]["x"], 0)
+        self.assertEqual(events[1], "click")
+        self.host._request("POST", "/point", {"x": events[0]["x"], "y": events[0]["y"], "action": "click"})
+        events = stage_browser.browser_call(None, 'return await page.evaluate(() => window.events);')
+        self.assertEqual((events[2]["kind"], events[2]["id"], events[2]["primary"]), ("PointerEvent", 1, True))
+        self.assertEqual(events[3], "click")
+        source = {"width": 1920, "height": 1080}
+        stage_browser.run_action("unused", None, source, {"id": "form"}, 0,
+            {"action": "input", "selector": "#edit", "value": "new", "durationMs": 0}, False, lambda *a: {})
+        stage_browser.run_action("unused", None, source, {"id": "form"}, 1,
+            {"action": "press", "selector": "#search", "key": "Enter"}, False, lambda *a: {})
+        state = stage_browser.browser_call(None, '''return await page.evaluate(() => ({text:document.querySelector("#edit").textContent, submitted:window.submitted}));''')
+        self.assertEqual(state, {"text": "new", "submitted": 1})
+        stage_browser.run_action("unused", None, source, {"id": "form"}, 2,
+            {"action": "scroll", "y": 200, "durationMs": 0}, False, lambda *a: {})
+        scroll_top = stage_browser.browser_call(None, 'return await page.evaluate(() => document.querySelector("#scroller").scrollTop);')
+        self.assertGreater(scroll_top, 0)
+        stage_browser.selector_point(None, "#button", source)
+        self.assertEqual(stage_browser.browser_call(None, 'return await page.evaluate(() => document.querySelector("#scroller").scrollTop);'), scroll_top)
+
+    def test_async_evaluation_timeout_reports_failure(self):
+        with self.assertRaisesRegex(ValueError, "timeout"):
+            self.host._request("POST", "/evaluate", {"script": "return await new Promise(resolve => setTimeout(() => resolve(1), 12000));", "mode": "script"})
+
+    def test_selector_timeout_reports_failure(self):
+        stage_browser.browser_call(None, '''return await page.evaluate(() => {
+  window.originalQuerySelector = document.querySelector;
+  document.querySelector = () => { const until = Date.now() + 7000; while (Date.now() < until) {} return null; };
+  return true;
+});''')
+        try:
+            with self.assertRaisesRegex(ValueError, "timeout"):
+                self.host._request("POST", "/selector", {"selector": "#slow", "action": "click"})
+        finally:
+            stage_browser.browser_call(None, 'return await page.evaluate(() => { document.querySelector = window.originalQuerySelector; return true; });')
 
     def test_authorized_json_evaluation_still_works(self):
         body = json.dumps({"script": "return 40 + 2;", "mode": "script"})

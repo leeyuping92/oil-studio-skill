@@ -7,7 +7,7 @@ description: >
   用户提到 Oil Studio、录屏工程，或要求录一段操作演示、剪掉录屏里的重说口误、调整录屏的缩放、拿到或校对录屏的字幕、导出录屏成片时使用。
   不用于普通 MP4/MOV 视频文件的剪辑或加字幕，也不用于直接编辑工程目录里的文件。
 metadata:
-  version: 0.9.8
+  version: 0.9.10
   minAppVersion: 0.3.15
 ---
 
@@ -21,7 +21,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.8 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.10 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。
@@ -39,7 +39,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 | 用户要什么 | 走哪一节 |
 | --- | --- |
 | 录一段某个应用或网页的操作演示 | 录制演示 |
-| 按步骤编排网页演示、重点卡片、字幕和缩放 | 网页 Playbook 录制 |
+| 按步骤编排网页演示、重点卡片和缩放 | 网页 Playbook 录制 |
 | 去掉没有操作的等待时间（没有口播的录屏） | 删除空档 |
 | 剪掉重说、口误、废话，并把字幕也处理好 | 精剪 + 字幕一气呵成（标准命令流） |
 | 剪掉重说、口误、废话，让口播更紧凑 | 精剪 |
@@ -73,7 +73,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 你用命令行开始和停止录制，用你自己的工具（Computer Use、浏览器工具）操作被录的应用。先读 [录制](references/recording.md)，里面有操作时的规矩和出错时的处理。录制会生成新工程，所以"开始前"的第 2 步（确定工程路径）在这里跳过。
 
-网页动作多、需要逐拍字幕或画面解剖卡片时，使用[网页 Playbook](references/recording.md#网页-playbook) 和 `scripts/record_playbook.py`。该流程只通过网页自动化接口操作网页，不使用 Computer Use；脚本会记录每拍的源时间并提交字幕与缩放提案。
+网页动作多、需要按拍编排缩放或画面解剖卡片时，使用[网页 Playbook](references/recording.md#网页-playbook) 和 `scripts/record_playbook.py`。该流程只通过网页自动化接口操作网页，不使用 Computer Use；**演示录制默认不加字幕（除非用户明确要求加字幕）**。
 
 1. `oilstudio status` 的 `app.running` 为 false：运行 `open -a "Oil Studio"`，等几秒后再查一次。
 2. 把要录的窗口准备到开场状态（打开页面、登录、调好窗口大小）。准备过程不录。

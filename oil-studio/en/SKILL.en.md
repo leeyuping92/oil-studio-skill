@@ -9,7 +9,7 @@ description: >
   an app demonstration, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
 metadata:
-  version: 0.9.8
+  version: 0.9.10
   minAppVersion: 0.3.15
 ---
 
@@ -23,7 +23,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.8 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.10 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.
@@ -75,7 +75,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 
 Start and stop recording with the CLI; operate the target with your own computer or browser tools. Read [Recording](references/recording.md). Skip project selection in “Before starting” because recording creates one.
 
-For multi-step web demonstrations that need beat-aligned captions, analysis cards, or zooms, use [Web playbooks](references/recording.md#web-playbooks) and `scripts/record_playbook.py`. This workflow controls web pages through the browser automation API only; do not use Computer Use. The script records each beat's source-time range and submits captions and zooms.
+For multi-step web demonstrations that need beat-aligned zooms or analysis cards, use [Web playbooks](references/recording.md#web-playbooks) and `scripts/record_playbook.py`. This workflow controls web pages through the browser automation API only; do not use Computer Use. Captions are off by default; add them only when the user explicitly requests captions.
 
 1. If `status` reports `app.running: false`, run `open -a "Oil Studio"`, wait briefly, and check again.
 2. Prepare the target window's opening state, including login and sizing, before recording.

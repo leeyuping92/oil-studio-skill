@@ -6,6 +6,7 @@ import WebKit
 final class StageWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+    override var isKeyWindow: Bool { true }
     override var occlusionState: NSWindow.OcclusionState { [.visible] }
 }
 
@@ -43,6 +44,7 @@ final class StageHost {
         let units = max(1, floor(120 * scale))
         let contentSize = NSSize(width: units * 16, height: units * 9)
         let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
         webView = WKWebView(frame: NSRect(origin: .zero, size: contentSize), configuration: configuration)
         window = StageWindow(contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -226,7 +228,7 @@ final class StageHost {
                 let timeoutWork = DispatchWorkItem { [weak self] in
                     guard !replied else { return }
                     replied = true
-                    self?.send(["ok": true, "result": NSNull()], connection: connection)
+                    self?.send(["ok": false, "error": "timeout"], connection: connection)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: timeoutWork)
                 self.webView.callAsyncJavaScript(javaScript, arguments: ["argument": argument], in: nil, in: .page,
@@ -236,7 +238,7 @@ final class StageHost {
                     timeoutWork.cancel()
                     switch result {
                     case .success(let value): self.send(["ok": true, "result": value], connection: connection)
-                    case .failure(let error): self.send(["ok": false, "error": error.localizedDescription], connection: connection)
+                    case .failure(let error): self.send(["ok": false, "error": self.jsErrorMessage(error)], connection: connection)
                     }
                 })
             case ("POST", "/selector"):
@@ -247,27 +249,29 @@ final class StageHost {
                 let timeoutWork = DispatchWorkItem { [weak self] in
                     guard !replied else { return }
                     replied = true
-                    self?.send(["ok": true, "result": true], connection: connection)
+                    self?.send(["ok": false, "error": "timeout"], connection: connection)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: timeoutWork)
                 self.webView.callAsyncJavaScript("""
                     const node = document.querySelector(selector);
                     if (!node) throw new Error(`No element matches selector: ${selector}`);
-                    const r = node.getBoundingClientRect();
-                    if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0 || r.right > window.innerWidth) {
+                    let r = node.getBoundingClientRect();
+                    let fixed = false;
+                    for (let el = node; el; el = el.parentElement) {
+                      if (["fixed", "sticky"].includes(getComputedStyle(el).position)) { fixed = true; break; }
+                    }
+                    if (!fixed && (r.top < 0 || r.bottom > innerHeight || r.left < 0 || r.right > innerWidth)) {
                       node.scrollIntoView({block:"center",inline:"center",behavior:"instant"});
+                      r = node.getBoundingClientRect();
                     }
-                    if (action === "click") {
-                      const clickOptions = {bubbles:true,cancelable:true,view:window,buttons:1};
-                      for (const type of ["pointerdown","mousedown","pointerup","mouseup"]) {
-                        node.dispatchEvent(new MouseEvent(type, clickOptions));
-                      }
-                      node.click();
-                      return true;
-                    }
-                    const options = {bubbles:true,cancelable:true,view:window,buttons:0};
-                    for (const type of ["pointerover","pointerenter","mouseover","mouseenter","mousemove"]) {
-                      node.dispatchEvent(new MouseEvent(type, options));
+                    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                    const options = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,pointerId:1,isPrimary:true};
+                    const types = action === "click" ? ["pointerdown","mousedown","pointerup","mouseup","click"] :
+                      ["pointerover","pointerenter","mouseover","mouseenter","pointermove","mousemove"];
+                    for (const type of types) {
+                      const down = type === "pointerdown" || type === "mousedown";
+                      const eventOptions = {...options, buttons:down ? 1 : 0};
+                      node.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, eventOptions) : new MouseEvent(type, eventOptions));
                     }
                     return true;
                     """, arguments: payload, in: nil, in: .page) { result in
@@ -284,13 +288,13 @@ final class StageHost {
                 self.webView.callAsyncJavaScript("""
                     const node = document.elementFromPoint(x,y);
                     if (!node) return false;
-                    const options = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,buttons:action === "click" ? 1 : 0};
-                    if (action === "click") {
-                      for (const type of ["pointerdown","mousedown","pointerup","mouseup","click"])
-                        node.dispatchEvent(new MouseEvent(type, options));
-                    } else {
-                      for (const type of ["pointerover","pointerenter","mouseover","mouseenter","mousemove"])
-                        node.dispatchEvent(new MouseEvent(type, options));
+                    const options = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,pointerId:1,isPrimary:true};
+                    const types = action === "click" ? ["pointerdown","mousedown","pointerup","mouseup","click"] :
+                      ["pointerover","pointerenter","mouseover","mouseenter","pointermove","mousemove"];
+                    for (const type of types) {
+                      const down = type === "pointerdown" || type === "mousedown";
+                      const eventOptions = {...options, buttons:down ? 1 : 0};
+                      node.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, eventOptions) : new MouseEvent(type, eventOptions));
                     }
                     return true;
                     """, arguments: payload, in: nil, in: .page) { result in
@@ -302,9 +306,17 @@ final class StageHost {
         }
     }
 
+    private func jsErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        if let message = nsError.userInfo["WKJavaScriptExceptionMessage"] as? String, !message.isEmpty {
+            return message
+        }
+        return error.localizedDescription
+    }
+
     private func evaluate(_ script: String, connection: NWConnection) {
         webView.evaluateJavaScript(script) { result, error in
-            if let error { self.send(["ok": false, "error": error.localizedDescription], connection: connection) }
+            if let error { self.send(["ok": false, "error": self.jsErrorMessage(error)], connection: connection) }
             else { self.send(["ok": true, "result": result ?? NSNull()], connection: connection) }
         }
     }
@@ -312,7 +324,7 @@ final class StageHost {
     private func sendResult(_ result: Result<Any, Error>, connection: NWConnection) {
         switch result {
         case .success(let value): send(["ok": true, "result": value], connection: connection)
-        case .failure(let error): send(["ok": false, "error": error.localizedDescription], connection: connection)
+        case .failure(let error): send(["ok": false, "error": jsErrorMessage(error)], connection: connection)
         }
     }
 

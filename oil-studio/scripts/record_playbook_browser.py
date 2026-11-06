@@ -30,7 +30,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "sourceRequired": {"zh-Hans": "source 需要 sourceId，或 app/title 匹配条件。", "en": "source requires sourceId or an app/title matching condition."},
     "exactTitleBoolean": {"zh-Hans": "source.exactTitle 必须是布尔值。", "en": "source.exactTitle must be a Boolean."},
     "browserObject": {"zh-Hans": "browser 必须是对象。", "en": "browser must be an object."},
-    "browserHost": {"zh-Hans": "browser.host 只支持 browser 或 stage-window。", "en": "browser.host supports only browser or stage-window."},
+    "browserHost": {"zh-Hans": "browser.host 只支持 browser、ego-browser 或 stage-window。", "en": "browser.host supports browser, ego-browser, or stage-window."},
     "stageSourceIdConflict": {"zh-Hans": "browser.host 为 stage-window 时不能指定 source.sourceId；请改用 source.title 或 app 匹配新舞台窗口。", "en": "source.sourceId can’t be used when browser.host is stage-window. Use source.title or app to match the new stage window instead."},
     "browserSpaceType": {"zh-Hans": "browser.space 或 browser.spaceId 必须是字符串或整数。", "en": "browser.space or browser.spaceId must be a string or integer."},
     "browserPageFormat": {"zh-Hans": "browser.page 必须是 user 或已存在的 Page 标签（例如 p1）。", "en": "browser.page must be user or an existing page label, such as p1."},
@@ -44,7 +44,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "beatObject": {"zh-Hans": "beats[{index}] 必须是对象。", "en": "beats[{index}] must be an object."},
     "beatIdNonempty": {"zh-Hans": "beats[{index}].id 必须是非空字符串。", "en": "beats[{index}].id must be a non-empty string."},
     "duplicateBeatId": {"zh-Hans": "拍子 id 重复：{identifier}", "en": "Duplicate beat id: {identifier}"},
-    "subtitleRequired": {"zh-Hans": "拍子 {identifier} 缺少中文字幕。", "en": "Beat {identifier} is missing its Chinese subtitle."},
+    "subtitleRequired": {"zh-Hans": "拍子 {identifier} 的字幕必须是字符串。", "en": "The subtitle for beat {identifier} must be a string."},
     "beatActionsArray": {"zh-Hans": "拍子 {identifier} 的 actions 必须是数组。", "en": "actions for beat {identifier} must be an array."},
     "beatHudObject": {"zh-Hans": "拍子 {identifier} 的 hud 必须是对象。", "en": "hud for beat {identifier} must be an object."},
     "hudPositionInvalid": {"zh-Hans": "拍子 {identifier} 的 hud.position 无效。", "en": "hud.position for beat {identifier} is invalid."},
@@ -54,7 +54,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "hudPillColor": {"zh-Hans": "HUD pill color 只接受十六进制颜色。", "en": "HUD pill colors must be hexadecimal values."},
     "beatZoomObject": {"zh-Hans": "拍子 {identifier} 的 zoom 必须是对象。", "en": "zoom for beat {identifier} must be an object."},
     "zoomLevelRange": {"zh-Hans": "拍子 {identifier} 的 zoom.level 必须在 1–3。", "en": "zoom.level for beat {identifier} must be between 1 and 3."},
-    "zoomSelectorTarget": {"zh-Hans": "拍子 {identifier} 的 zoom 需要 selector 或 target 二选一。", "en": "zoom for beat {identifier} requires exactly one of selector or target."},
+    "zoomSelectorTarget": {"zh-Hans": "拍子 {identifier} 的手动缩放需要 selector 或 target 二选一；自动缩放不能指定目标。", "en": "Manual zoom for beat {identifier} requires exactly one selector or target; automatic zoom cannot specify a target."},
+    "zoomModeInvalid": {"zh-Hans": "拍子 {identifier} 的 zoom.mode 无效。", "en": "zoom.mode for beat {identifier} is invalid."},
     "zoomTargetRange": {"zh-Hans": "拍子 {identifier} 的 zoom.target x/y 必须在 0–1。", "en": "zoom.target x/y for beat {identifier} must be between 0 and 1."},
     "zoomTransitionInvalid": {"zh-Hans": "拍子 {identifier} 的 zoom.transition 无效。", "en": "zoom.transition for beat {identifier} is invalid."},
     "firstOpenRequired": {"zh-Hans": "第一拍的第一个动作必须是 open，用来准备录制开始画面。", "en": "The first action of the first beat must be open so it can prepare the opening recording frame."},
@@ -86,6 +87,13 @@ MESSAGES: dict[str, dict[str, str]] = {
     "helpOutReport": {"zh-Hans": "写入录制与处理结果 JSON", "en": "Write the recording and processing report as JSON"},
     "helpExport": {"zh-Hans": "可选的 MP4 导出路径", "en": "Optional MP4 export path"},
     "helpDryRun": {"zh-Hans": "只校验 Playbook，不启动浏览器或录制", "en": "Validate the playbook without opening a browser or recording"},
+    "inspectConflict": {"zh-Hans": "--inspect 不能与 --rehearse、--dry-run 或 --preflight-only 一起使用。", "en": "--inspect cannot be combined with --rehearse, --dry-run, or --preflight-only."},
+    "rehearseConflict": {"zh-Hans": "--rehearse 不能与 --dry-run、--preflight-only 或 --export 一起使用。", "en": "--rehearse cannot be combined with --dry-run, --preflight-only, or --export."},
+    "helpInspect": {"zh-Hans": "在舞台窗口检查网页元素", "en": "Inspect page elements in a stage window"},
+    "helpRehearse": {"zh-Hans": "在舞台窗口试跑 Playbook，不录制", "en": "Rehearse the playbook in a stage window without recording"},
+    "inspectURL": {"zh-Hans": "--inspect 需要 http(s) URL。", "en": "--inspect requires an HTTP(S) URL."},
+    "actionPressKey": {"zh-Hans": "{prefix}.key 需要有效按键及可选修饰键。", "en": "{prefix}.key requires a valid key and optional modifiers."},
+    "stageUnstable": {"zh-Hans": "等待网页渲染稳定超时。", "en": "Timed out waiting for the page to settle."},
     "helpPreflightOnly": {"zh-Hans": "只录制并 OCR 检查短试拍，不开始完整录制", "en": "Record and OCR-check only the short preflight take"},
     "helpHelp": {"zh-Hans": "显示此帮助并退出", "en": "Show this help and exit"},
     "usagePrefix": {"zh-Hans": "用法：", "en": "usage:"},
@@ -279,8 +287,12 @@ class StageWindowHost:
         while time.monotonic() < deadline:
             try:
                 state = self._request("GET", "/state")
-                if (comparable_urls_match(state.get("url"), url) and isinstance(state.get("title"), str)
-                        and state.get("readyState") in ("interactive", "complete")):
+                actual_url = state.get("url")
+                if (isinstance(state.get("title"), str)
+                        and state.get("readyState") in ("interactive", "complete")
+                        and (comparable_urls_match(actual_url, url)
+                             or (isinstance(actual_url, str) and actual_url.startswith(("http://", "https://"))
+                                 and state.get("readyState") == "complete"))):
                     return state
             except (OSError, ValueError, urllib.error.URLError) as exc:
                 last_error = exc
@@ -471,7 +483,11 @@ for (let attempt = 0; attempt < 65; attempt++) {{
     if (!node) return null;
     const r = node.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return null;
-    return {{ top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height, innerWidth, innerHeight, outerWidth, outerHeight }};
+    let fixedOrSticky = false;
+    for (let el = node; el; el = el.parentElement) {{
+      if (["fixed", "sticky"].includes(getComputedStyle(el).position)) {{ fixedOrSticky = true; break; }}
+    }}
+    return {{ fixedOrSticky, top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height, innerWidth, innerHeight, outerWidth, outerHeight }};
   }}, input);
   if (probe && probe.missingController) throw new Error({js_message("stageControllerUnavailable")});
   if (probe) break;
@@ -479,12 +495,12 @@ for (let attempt = 0; attempt < 65; attempt++) {{
 }}
 if (!probe) throw new Error({js_message("noElementPrefix")} + input.selector);
 if (input.enterBeat !== null) await page.waitForTimeout(420);
-if ({str(scroll).lower()} && (probe.top < 48 || probe.bottom > probe.innerHeight - 48)) {{
-  await page.evaluate(async (selector) => {{
+if ({str(scroll).lower()} && !probe.fixedOrSticky && (probe.top < 48 || probe.bottom > probe.innerHeight - 48)) {{
+  const didScroll = await page.evaluate(async (selector) => {{
     const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
     const root = document.scrollingElement || document.documentElement;
     const element = document.querySelector(selector);
-    if (!element) return;
+    if (!element) return false;
     let scroller = root;
     for (let node = element.parentElement; node; node = node.parentElement) {{
       const style = getComputedStyle(node);
@@ -505,9 +521,11 @@ if ({str(scroll).lower()} && (probe.top < 48 || probe.bottom > probe.innerHeight
         }};
         nextFrame(step);
       }});
+      return true;
     }}
+    return false;
   }}, input.selector);
-  await page.waitForTimeout(180);
+  if (didScroll) await page.waitForTimeout(520);
 }}
 const rect = await page.evaluate((selector) => {{
   const node = document.querySelector(selector);
@@ -607,6 +625,16 @@ await page.evaluate(async (data) => {{
   if (element) for (let node = element.parentElement; node; node = node.parentElement) {{
     const style = getComputedStyle(node); if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(style.overflowY)) {{ scroller = node; break; }}
   }}
+  if (!element && root.scrollHeight <= root.clientHeight + 1) {{
+    const candidates = Array.from(document.querySelectorAll("*"));
+    const visibleArea = node => {{ const r = node.getBoundingClientRect();
+      return Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) *
+        Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top)); }};
+    const scrollable = candidates.filter(node => node !== root && node.scrollHeight > node.clientHeight + 1 &&
+      /auto|scroll/.test(getComputedStyle(node).overflowY) && visibleArea(node) > 0);
+    scrollable.sort((a, b) => visibleArea(b) - visibleArea(a));
+    if (scrollable.length) scroller = scrollable[0];
+  }}
   let target = data.y;
   if (element) {{ const r = element.getBoundingClientRect(); const c = scroller === root ? {{ top: 0, height: innerHeight }} : scroller.getBoundingClientRect();
     target = scroller.scrollTop + r.top - c.top - c.height / 2 + r.height / 2; }}
@@ -629,11 +657,16 @@ return true;''', timeout=max(60, action.get("durationMs", 600) / 1000 + 15), pag
 await page.click(data.selector, {{ label: "Playbook input action" }});
 await page.evaluate(async (data) => {{
   const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
-  const el = document.querySelector(data.selector); if (!el) throw new Error({js_message("noElementPrefix")} + data.selector);
+  let el = document.querySelector(data.selector);
+  if (!el && document.activeElement && (document.activeElement.matches("input,textarea,[contenteditable=\\"true\\"]") || document.activeElement.isContentEditable)) {{
+    el = document.activeElement;
+  }}
+  if (!el) throw new Error({js_message("noElementPrefix")} + data.selector);
   if (typeof el.focus === "function") el.focus();
   const set = (value, ch) => {{ const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value");
     const text = String(value);
-    descriptor?.set ? descriptor.set.call(el, text) : el.value = text;
+    if (el.isContentEditable) el.textContent = text;
+    else if (descriptor?.set) descriptor.set.call(el, text); else el.value = text;
     try {{ if (typeof el.setSelectionRange === "function") el.setSelectionRange(text.length, text.length); }} catch {{}}
     el.dispatchEvent(typeof InputEvent === "function" && ch ? new InputEvent("input", {{ bubbles: true, data: ch, inputType: "insertText" }}) : new Event("input", {{ bubbles: true }})); }};
   if ("to" in data && typeof data.from === "number" && typeof data.to === "number" && data.durationMs > 0) {{
@@ -659,6 +692,54 @@ await page.evaluate(async (data) => {{
   el.dispatchEvent(new Event("change", {{ bubbles: true }}));
 }}, data);
 return true;''', timeout=max(60, action.get("durationMs", 1600) / 1000 + 15), page_ref=page_ref)
+    elif kind == "press":
+        ensure_active()
+        data = {"key": action["key"], "selector": action.get("selector")}
+        browser_call(space, f'''const data = {json.dumps(data, ensure_ascii=False)};
+await page.evaluate(async (data) => {{
+  let el = null;
+  if (data.selector) {{
+    for (let attempt = 0; attempt < 40; attempt++) {{
+      el = document.querySelector(data.selector);
+      if (el) break;
+      await new Promise(resolve => setTimeout(resolve, 120));
+    }}
+    if (!el && document.activeElement && document.activeElement !== document.body) {{
+      el = document.activeElement;
+    }}
+  }} else {{
+    el = document.activeElement || document.body;
+  }}
+  if (!el) throw new Error({js_message("noElementPrefix")} + data.selector);
+  if (data.selector && typeof el.focus === "function") el.focus();
+  const parts = data.key.split("+"); const key = parts.pop();
+  const keyCodes = {{Enter: 13, Escape: 27, Tab: 9, Backspace: 8, Space: 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40}};
+  const keyCode = keyCodes[key] || (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+  const code = key.length === 1 ? (/[a-zA-Z]/.test(key) ? "Key" + key.toUpperCase() : /[0-9]/.test(key) ? "Digit" + key : key) : key;
+  const modifiers = {{metaKey: parts.includes("Meta"), ctrlKey: parts.includes("Control"),
+    altKey: parts.includes("Alt"), shiftKey: parts.includes("Shift")}};
+  const options = {{key, code, keyCode, which: keyCode, ...modifiers, bubbles: true, cancelable: true, composed: true, view: window}};
+  const accepted = el.dispatchEvent(new KeyboardEvent("keydown", options));
+  if (key === "Escape") {{
+    document.dispatchEvent(new KeyboardEvent("keydown", options));
+    window.dispatchEvent(new KeyboardEvent("keydown", options));
+  }}
+  if (accepted && key === "Enter" && !parts.length) {{
+    if (el.tagName === "INPUT" && el.type === "search") el.dispatchEvent(new Event("search", {{bubbles:true}}));
+    const form = el.form || el.closest("form");
+    if (form && el.tagName !== "TEXTAREA" && !el.isContentEditable && typeof form.requestSubmit === "function") form.requestSubmit();
+  }} else if (accepted && key === "Tab") {{
+    const nodes = Array.from(document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]'))
+      .filter(node => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+    if (nodes.length) {{ const index = nodes.indexOf(el); const next = index < 0 ? (modifiers.shiftKey ? nodes.length - 1 : 0) : (index + (modifiers.shiftKey ? -1 : 1) + nodes.length) % nodes.length; nodes[next].focus(); }}
+  }}
+  el.dispatchEvent(new KeyboardEvent("keyup", options));
+  if (key === "Escape") {{
+    document.dispatchEvent(new KeyboardEvent("keyup", options));
+    window.dispatchEvent(new KeyboardEvent("keyup", options));
+  }}
+}}, data);
+return true;''', page_ref=page_ref)
     elif kind == "eval":
         ensure_active()
         browser_call(space, f'const value = await page.evaluate({json.dumps(action["script"], ensure_ascii=False)}); return value ?? true;', page_ref=page_ref)
@@ -670,3 +751,102 @@ return true;''', timeout=max(60, action.get("durationMs", 1600) / 1000 + 15), pa
     elif kind == "mark":
         ensure_active()
         run_cli(cli, "record", "mark")
+
+
+def wait_for_render_stability(space: Any = None, page_ref: str = "p1") -> None:
+    """Wait for several consecutive layout samples to agree before inspection."""
+    deadline = time.monotonic() + 15
+    previous = None
+    stable_since = None
+    complete_since = None
+    while time.monotonic() < deadline:
+        sample = browser_call(space, '''return await page.evaluate(() => ({
+  url: location.href, ready: document.readyState, width: innerWidth, height: innerHeight,
+  scrollHeight: document.documentElement.scrollHeight, bodyHeight: document.body?.scrollHeight ?? 0,
+  elements: document.getElementsByTagName("*").length,
+  geometry: Array.from(document.querySelectorAll("body *")).filter(el => el.getClientRects().length).slice(0, 500).map(el => {
+    const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(n => Math.round(n * 10) / 10);
+  })
+}));''', page_ref=page_ref)
+        now = time.monotonic()
+        if sample.get("ready") == "complete":
+            complete_since = complete_since or now
+            if sample == previous:
+                stable_since = stable_since or now
+                if now - stable_since >= 0.6:
+                    return
+            else:
+                previous, stable_since = sample, None
+            if now - complete_since >= 2.5:
+                return
+        else:
+            previous, stable_since, complete_since = sample, None, None
+        time.sleep(0.15)
+    raise ValueError(message("stageUnstable"))
+
+
+def inspect_page(space: Any = None, page_ref: str = "p1") -> dict[str, Any]:
+    wait_for_render_stability(space, page_ref)
+    return browser_call(space, '''return await page.evaluate(() => {
+  const isStableId = id => Boolean(id) && !/(:|^radix-|^base-ui-|^headlessui-|^react-aria)/.test(id);
+  const landmarks = new Set(["header", "nav", "main", "aside", "footer", "section", "article", "form", "body"]);
+  const selector = node => {
+    if (isStableId(node.id)) {
+      const id = "#" + CSS.escape(node.id); if (document.querySelectorAll(id).length === 1) return id;
+    }
+    const tag = CSS.escape(node.localName);
+    for (const attr of ["data-testid", "data-demo", "name", "aria-label", "placeholder", "title"]) {
+      const val = node.getAttribute(attr);
+      if (val && val.length <= 80 && !val.includes("\\n")) {
+        const candidate = `${tag}[${attr}=${JSON.stringify(val)}]`;
+        if (document.querySelectorAll(candidate).length === 1) return candidate;
+      }
+    }
+    if (node.localName === "a") {
+      const href = node.getAttribute("href");
+      if (href && href.length > 1 && href.length <= 80 && !href.startsWith("javascript:")) {
+        const candidate = `a[href=${JSON.stringify(href)}]`;
+        if (document.querySelectorAll(candidate).length === 1) return candidate;
+      }
+    }
+    const path = [];
+    let hasLandmark = false;
+    for (let el = node; el && el.nodeType === 1; el = el.parentElement) {
+      if (isStableId(el.id)) {
+        const prefix = "#" + CSS.escape(el.id);
+        const candidate = path.length ? `${prefix} > ${path.join(" > ")}` : prefix;
+        if (document.querySelectorAll(candidate).length === 1) return candidate;
+      }
+      let part = CSS.escape(el.localName);
+      if (landmarks.has(el.localName)) hasLandmark = true;
+      if (el.parentElement) {
+        const siblings = Array.from(el.parentElement.children).filter(child => child.localName === el.localName);
+        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(el) + 1})`;
+      }
+      path.unshift(part);
+      const value = path.join(" > ");
+      if (hasLandmark && document.querySelectorAll(value).length === 1) return value;
+    }
+    return path.join(" > ");
+  };
+  const describe = node => {
+    const r = node.getBoundingClientRect();
+    let fixedOrSticky = false;
+    for (let el = node; el; el = el.parentElement) {
+      if (["fixed", "sticky"].includes(getComputedStyle(el).position)) { fixedOrSticky = true; break; }
+    }
+    return {tag: node.localName, role: node.getAttribute("role"),
+      text: (node.innerText || node.getAttribute("aria-label") || node.getAttribute("title") || "").trim().slice(0, 300),
+      selector: selector(node), rect: {x:r.x,y:r.y,width:r.width,height:r.height}, fixedOrSticky};
+  };
+  const nodes = Array.from(document.querySelectorAll("*"));
+  const visible = node => { const r = node.getBoundingClientRect(), style = getComputedStyle(node);
+    return r.width > 4 && r.height > 4 && r.bottom > 0 && r.right > 0 &&
+      style.display !== "none" && style.visibility !== "hidden" && parseFloat(style.opacity || "1") > 0.05; };
+  const scrollContainers = nodes.filter(node => node.scrollHeight > node.clientHeight + 1 &&
+    (node === document.scrollingElement || /auto|scroll/.test(getComputedStyle(node).overflowY)) && visible(node)).map(describe);
+  const interactiveElements = nodes.filter(node => node.matches('a[href],button,input,select,textarea,summary,[role="button"],[role="link"],[role="textbox"],[role="searchbox"],[role="checkbox"],[role="radio"],[role="switch"],[role="tab"],[role="menuitem"],[role="combobox"],[role="slider"],[role="option"],[tabindex],[contenteditable="true"],[onclick]') && visible(node)).map(describe);
+  return {url: location.href, title: document.title,
+    viewport: {innerWidth, innerHeight, scrollHeight: document.scrollingElement?.scrollHeight ?? document.documentElement.scrollHeight},
+    scrollContainers, interactiveElements};
+});''', page_ref=page_ref)

@@ -20,14 +20,14 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from record_playbook_browser import StageWindowHost, action_point, browser_call, comparable_urls_match, inject_hud, message, page_metrics, run_action, selector_point, to_window_point
+from record_playbook_browser import StageWindowHost, action_point, browser_call, comparable_urls_match, inject_hud, inspect_page, message, page_metrics, run_action, selector_point, to_window_point, wait_for_render_stability
 
 
 class PlaybookError(Exception):
     pass
 
 
-ACTIONS = {"open", "click", "move", "scroll", "input", "eval", "wait", "mark"}
+ACTIONS = {"open", "click", "move", "scroll", "input", "press", "eval", "wait", "mark"}
 POSITIONS = {"top-right", "bottom-left", "top-left"}
 
 
@@ -111,7 +111,7 @@ def validate_playbook(book: dict[str, Any]) -> None:
         require(isinstance(identifier, str) and identifier.strip(), "beatIdNonempty", index=beat_index)
         require(identifier not in ids, "duplicateBeatId", identifier=identifier)
         ids.add(identifier)
-        require(isinstance(beat.get("subtitle"), str) and beat["subtitle"].strip(), "subtitleRequired", identifier=identifier)
+        require("subtitle" not in beat or isinstance(beat["subtitle"], str), "subtitleRequired", identifier=identifier)
         actions = beat.get("actions", [])
         require(isinstance(actions, list), "beatActionsArray", identifier=identifier)
         for action_index, action in enumerate(actions):
@@ -138,9 +138,13 @@ def validate_playbook(book: dict[str, Any]) -> None:
             level = zoom.get("level")
             require(isinstance(level, (int, float)) and math.isfinite(level) and 1 <= level <= 3,
                 "zoomLevelRange", identifier=identifier)
-            require((isinstance(zoom.get("selector"), str) and bool(zoom["selector"].strip()))
-                != (isinstance(zoom.get("target"), dict)), "zoomSelectorTarget", identifier=identifier)
-            if "target" in zoom:
+            mode = zoom.get("mode")
+            require(mode is None or mode in ("auto", "manual"), "zoomModeInvalid", identifier=identifier)
+            has_selector = isinstance(zoom.get("selector"), str) and bool(zoom["selector"].strip())
+            has_target = isinstance(zoom.get("target"), dict)
+            require(not (has_selector and has_target) and ((mode == "auto" and not has_selector and not has_target) or (mode != "auto" and (has_selector or has_target))),
+                "zoomSelectorTarget", identifier=identifier)
+            if has_target:
                 target = zoom["target"]
                 require(all(isinstance(target.get(axis), (int, float)) and math.isfinite(target[axis])
                     and 0 <= target[axis] <= 1 for axis in ("x", "y")), "zoomTargetRange", identifier=identifier)
@@ -183,6 +187,10 @@ def validate_action(beat_id: str, index: int, action: Any) -> None:
         if "durationMs" in action:
             require(isinstance(action["durationMs"], (int, float)) and math.isfinite(action["durationMs"]) and action["durationMs"] >= 0,
                 "actionDurationNonnegative", prefix=prefix)
+    elif kind == "press":
+        key = action.get("key")
+        require(isinstance(key, str) and bool(re.fullmatch(r"(?:(?:Meta|Control|Alt|Shift)\+)*[^+\s]+", key)), "actionPressKey", prefix=prefix)
+        require("selector" not in action or isinstance(action["selector"], str) and bool(action["selector"].strip()), "actionSelectorNonempty", prefix=prefix)
     elif kind == "eval":
         require(isinstance(action.get("script"), str) and bool(action["script"].strip()), "actionEvalScript", prefix=prefix)
     elif kind == "wait":
@@ -319,6 +327,12 @@ class PlaybookArgumentParser(argparse.ArgumentParser):
         self.exit(2, f"{self.prog}: {message('argumentError')}: {self._localized_error(detail)}\n")
 
     def _localized_error(self, detail: str) -> str:
+        conflicts = {
+            "--inspect cannot be combined with --rehearse, --dry-run, or --preflight-only": "inspectConflict",
+            "--rehearse cannot be combined with --dry-run, --preflight-only, or --export": "rehearseConflict",
+        }
+        if detail in conflicts:
+            return message(conflicts[detail])
         patterns = (
             (r"the following arguments are required: (.+)", "requiredArguments"),
             (r"unrecognized arguments: (.+)", "unrecognizedArguments"),
@@ -339,13 +353,21 @@ class PlaybookArgumentParser(argparse.ArgumentParser):
 def main() -> int:
     parser = PlaybookArgumentParser(description=message("cliDescription"), add_help=False, allow_abbrev=False)
     parser.add_argument("-h", "--help", action="help", help=message("helpHelp"))
-    parser.add_argument("--playbook", required=True, type=Path, help=message("helpPlaybook"))
+    parser.add_argument("--playbook", type=Path, help=message("helpPlaybook"))
+    parser.add_argument("--inspect", metavar="URL", help=message("helpInspect"))
+    parser.add_argument("--rehearse", action="store_true", help=message("helpRehearse"))
     parser.add_argument("--out-report", type=Path, help=message("helpOutReport"))
     parser.add_argument("--export", type=Path, help=message("helpExport"))
     parser.add_argument("--dry-run", action="store_true", help=message("helpDryRun"))
     parser.add_argument("--preflight-only", action="store_true", help=message("helpPreflightOnly"))
     parser.add_argument("--cli", default="oilstudio", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not args.playbook and not args.inspect:
+        parser.error("the following arguments are required: --playbook")
+    if args.inspect and (args.rehearse or args.dry_run or args.preflight_only):
+        parser.error("--inspect cannot be combined with --rehearse, --dry-run, or --preflight-only")
+    if args.rehearse and (args.dry_run or args.preflight_only or args.export):
+        parser.error("--rehearse cannot be combined with --dry-run, --preflight-only, or --export")
     recording_cli = bind_cli(args.cli, run_cli)
     report: dict[str, Any] = {"ok": False, "playbook": str(args.playbook), "phases": []}
     stage_host: Optional[StageWindowHost] = None
@@ -357,34 +379,76 @@ def main() -> int:
             signal.signal(signal.SIGTERM, lambda signum, frame: (_ for _ in ()).throw(KeyboardInterrupt(message("interrupted"))))
         validate_report_path(args.out_report)
         report_path_valid = True
+        if args.inspect:
+            require(args.inspect.startswith(("http://", "https://")), "inspectURL")
+            require(shutil.which("node") is not None, "nodeUnavailable")
+            with tempfile.TemporaryDirectory(prefix="oil-studio-inspect-") as scratch:
+                stage_host = StageWindowHost.start(args.inspect, Path(scratch) / "stage-host")
+                result = inspect_page()
+                write_report(args.out_report, result)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         book = load_playbook(args.playbook.expanduser())
         report["beats"] = len(book["beats"])
         report["actions"] = sum(len(beat.get("actions", [])) for beat in book["beats"])
         if args.dry_run:
             report.update({"ok": True, "dryRun": True, "zoomBeats": [beat["id"] for beat in book["beats"] if beat.get("zoom")],
-                "subtitleCues": len(book["beats"]), "export": str(args.export) if args.export else None})
+                "subtitleCues": sum(bool(beat.get("subtitle", "").strip()) for beat in book["beats"]) if book.get("settings", {}).get("subtitles", {}).get("enabled") is True else 0, "export": str(args.export) if args.export else None})
             write_report(args.out_report, report)
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+        if args.rehearse:
+            require(shutil.which("node") is not None, "nodeUnavailable")
+            first_url = book["beats"][0]["actions"][0]["url"]
+            with tempfile.TemporaryDirectory(prefix="oil-studio-rehearse-") as scratch:
+                stage_host = StageWindowHost.start(first_url, Path(scratch) / "stage-host")
+                wait_for_render_stability()
+                source = {"width": 1920, "height": 1080}
+                report["rehearsal"] = []
+                for beat_index, beat in enumerate(book["beats"]):
+                    result = {"id": beat["id"], "actions": [], "ok": False}
+                    report["rehearsal"].append(result)
+                    inject_hud(None, beat.get("hud"))
+                    if beat.get("zoom", {}).get("selector"):
+                        result["currentStep"] = "zoom"
+                        result["zoomPoint"] = selector_point(None, beat["zoom"]["selector"], source, scroll=False)
+                    result.pop("currentStep", None)
+                    for index, action in enumerate(beat.get("actions", [])):
+                        result["currentAction"] = index
+                        run_action(args.cli, None, source, beat, index, action,
+                            beat_index == 0 and index == 0, lambda *args, **kwargs: {})
+                        result["actions"].append({"index": index, "action": action.get("action", action.get("type")), "ok": True})
+                    result.pop("currentAction", None)
+                    inject_hud(None, None)
+                    result["ok"] = True
+                report.update({"ok": True, "rehearsed": True})
+                write_report(args.out_report, report)
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
         require(shutil.which(args.cli) is not None, "cliNotFound", command=args.cli)
         require(shutil.which("node") is not None, "nodeUnavailable")
-        if book.get("browser", {}).get("host") != "stage-window":
-            require(shutil.which("ego-browser") is not None, "browserAutomationUnavailable")
-        require(args.export is None or args.export.suffix.lower() == ".mp4", "exportExtension")
-        require(args.export is None or not args.export.expanduser().exists(), "exportExists")
-        first_url = book["beats"][0]["actions"][0]["url"]
         browser_cfg = book.get("browser", {})
         requested_host = browser_cfg.get("host")
         if requested_host == "ego-browser":
             requested_host = "browser"
+        has_browser_cli = shutil.which("ego-browser") is not None
+        if requested_host is None and not has_browser_cli and browser_cfg.get("page") != "user" and "sourceId" not in book["source"]:
+            use_stage_window = True
+        else:
+            use_stage_window = requested_host == "stage-window"
+        if not use_stage_window:
+            require(has_browser_cli, "browserAutomationUnavailable")
+        require(args.export is None or args.export.suffix.lower() == ".mp4", "exportExtension")
+        require(args.export is None or not args.export.expanduser().exists(), "exportExists")
+        first_url = book["beats"][0]["actions"][0]["url"]
         space = browser_cfg.get("space", browser_cfg.get("spaceId"))
-        if requested_host == "stage-window":
+        if use_stage_window:
             space = None
         elif space is None:
             space = f"Web Demo {uuid.uuid4()}"
         page_ref = browser_cfg.get("page", "p1")
         scratch = make_scratch_directory(browser_cfg.get("scratchDir"))
-        if requested_host == "stage-window":
+        if use_stage_window:
             stage_host = StageWindowHost.start(first_url, scratch / "stage-host")
             browser_state = browser_call(space, '''const metrics = await page.evaluate(() => ({ innerWidth, innerHeight, outerWidth, outerHeight }));
 const tabs = await task.tabs();
@@ -411,7 +475,7 @@ return {{ pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: p
             source = pick_source(sources_result.get("sources", []), source_match)
             require(source.get("title") == page_title and browser_state.get("activeTabMatchesPage"), "nativeTitleMismatch")
         except (PlaybookError, ValueError):
-            if stage_host is not None or requested_host == "stage-window" or "sourceId" in book["source"]:
+            if stage_host is not None or requested_host is not None or browser_cfg.get("page") == "user" or "sourceId" in book["source"]:
                 raise
             stage_host = StageWindowHost.start(first_url, scratch / "stage-host")
             browser_state = browser_call(None, '''const metrics = await page.evaluate(() => ({ innerWidth, innerHeight, outerWidth, outerHeight }));
@@ -439,6 +503,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             style = settings.setdefault("style", {})
             require(isinstance(style, dict), "stageStyleObject")
             style["cropNormalized"] = {"x": 0, "y": 0, "width": 1, "height": 1}
+            style.setdefault("screenRadius", 12)
             report["stageWindow"] = {"borderless": True, "contentSize": {"width": 1920, "height": 1080},
                 "nonActivating": True, "systemMouse": False, "chrome": False}
             report["browserChromeCrop"] = style["cropNormalized"]
@@ -451,6 +516,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             style = settings.setdefault("style", {})
             require(isinstance(style, dict), "browserStyleObject")
             style["cropNormalized"] = {"x": 0, "y": chrome_y, "width": 1, "height": 1 - chrome_y}
+            style.setdefault("screenRadius", 12)
             report["browserChromeCrop"] = style["cropNormalized"]
 
         preflight_seconds = float(browser_cfg.get("preflightSeconds", 0))
@@ -492,6 +558,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
 
         run_cli(args.cli, "record", "start", "--source", source["id"])
         recording = True
+        time.sleep(0.45)
         report["phases"].append("recording")
         cue_ranges: list[dict[str, Any]] = []
         chapter_rows: list[dict[str, Any]] = []
@@ -504,6 +571,17 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             active_recording_status(recording_cli)
             inject_hud(space, beat.get("hud"), page_ref)
             start = active_recording_status(recording_cli)["durationSourceMs"]
+            point = None
+            zoom = beat.get("zoom")
+            if zoom:
+                if zoom.get("mode") == "auto":
+                    point = {"u": 0.5, "v": 0.5}
+                elif zoom.get("selector"):
+                    point = selector_point(space, zoom["selector"], source, scroll=False, page_ref=page_ref)
+                else:
+                    metrics = page_metrics(space, source, page_ref)
+                    target = zoom.get("target") or {"x": 0.5, "y": 0.5}
+                    point = to_window_point(metrics, source, target["x"] * metrics["innerWidth"], target["y"] * metrics["innerHeight"])
             for index, action in enumerate(beat.get("actions", [])):
                 if action.get("action", action.get("type")) in ("click", "move", "input"):
                     has_recorded_intents = True
@@ -513,28 +591,18 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                     ensure_recording_active=lambda: active_recording_status(recording_cli))
                 if beat_index == 0 and index == 0:
                     preopened = False
-            point = None
-            if beat.get("zoom"):
-                active_recording_status(recording_cli)
-                zoom = beat["zoom"]
-                if zoom.get("selector"):
-                    active_recording_status(recording_cli)
-                    point = selector_point(space, zoom["selector"], source, scroll=False, page_ref=page_ref)
-                else:
-                    active_recording_status(recording_cli)
-                    metrics = page_metrics(space, source, page_ref)
-                    target = zoom["target"]
-                    point = to_window_point(metrics, source, target["x"] * metrics["innerWidth"], target["y"] * metrics["innerHeight"])
             end = active_recording_status(recording_cli)["durationSourceMs"]
             require(end > start, "beatZeroDuration", identifier=beat["id"])
-            cue_ranges.append({"id": beat["id"], "sourceStartMs": start, "sourceEndMs": end, "text": beat["subtitle"]})
+            if beat.get("subtitle", "").strip():
+                cue_ranges.append({"id": beat["id"], "sourceStartMs": start, "sourceEndMs": end, "text": beat["subtitle"]})
             if isinstance(beat.get("chapter"), str) and beat["chapter"].strip():
                 chapter_rows.append({"title": beat["chapter"].strip(), "sourceStartMs": 0 if beat_index == 0 else start})
             if point is not None:
                 zoom = beat["zoom"]
+                zoom_mode = zoom.get("mode", "manual")
                 zoom_rows.append({"action": "add", "sourceStartMs": start, "sourceEndMs": end,
-                    "level": zoom["level"], "mode": "manual", "target": {"x": point["u"], "y": point["v"]},
-                    "transition": zoom.get("transition", "smooth"), "reason": beat["subtitle"]})
+                    "level": zoom["level"], "mode": zoom_mode, "target": {"x": point["u"], "y": point["v"]},
+                    "transition": zoom.get("transition", "smooth"), "reason": beat.get("subtitle", "") or beat["id"]})
             active_recording_status(recording_cli)
             inject_hud(space, None, page_ref)
         stop = run_cli(args.cli, "record", "stop")
@@ -549,7 +617,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         with tempfile.TemporaryDirectory(prefix="oil-studio-playbook-") as temporary:
             temp = Path(temporary)
             pending = False
-            if has_recorded_intents and not zoom_rows:
+            if has_recorded_intents:
                 idle_result = run_cli(args.cli, "idle", project, "--threshold", "1000", "--keep", "350", "--submit", timeout=600)
                 report["idleSubmission"] = idle_result
                 pending |= idle_result.get("autoApplied") is False and bool(idle_result.get("pauses"))
@@ -566,8 +634,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                 plan_zooms: list[dict[str, Any]] = []
                 removed_auto_zoom_ids = []
                 for existing in context.get("zooms", []):
-                    recorded_auto_overlap = (existing.get("mode") == "auto"
-                        and existing.get("origin") == "recorded"
+                    recorded_auto_overlap = ((existing.get("mode") == "auto" or existing.get("origin") in ("auto", "generated"))
                         and recorded_auto_zoom_overlaps(existing, zoom_rows))
                     if recorded_auto_overlap:
                         plan_zooms.append({"action": "remove", "id": existing["id"],
@@ -588,11 +655,13 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                 report["planSubmission"] = result
                 report["replacedAutoZoomIds"] = removed_auto_zoom_ids
                 pending |= result.get("autoApplied") is False
-            subtitles_file = temp / "subtitles.json"
-            subtitles_file.write_text(json.dumps({"schemaVersion": 1, "cues": cue_ranges}, ensure_ascii=False), encoding="utf-8")
-            result = run_cli(args.cli, "subtitles", "apply", project, str(subtitles_file))
-            report["subtitleSubmission"] = result
-            pending |= result.get("autoApplied") is False
+            subtitles_enabled = bool(cue_ranges) and book.get("settings", {}).get("subtitles", {}).get("enabled") is True
+            if subtitles_enabled:
+                subtitles_file = temp / "subtitles.json"
+                subtitles_file.write_text(json.dumps({"schemaVersion": 1, "cues": cue_ranges}, ensure_ascii=False), encoding="utf-8")
+                result = run_cli(args.cli, "subtitles", "apply", project, str(subtitles_file))
+                report["subtitleSubmission"] = result
+                pending |= result.get("autoApplied") is False
             if chapter_rows:
                 chapters_file = temp / "chapters.json"
                 chapters_file.write_text(json.dumps({"schemaVersion": 1, "chapters": chapter_rows}, ensure_ascii=False), encoding="utf-8")
@@ -606,7 +675,7 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                     report["export"] = {"skipped": True, "reason": message("exportPendingReason")}
                 else:
                     export_path = str(args.export.expanduser())
-                    report["export"] = run_cli(args.cli, "export", project, "--out", export_path, "--subtitles", "burn", "--overwrite", timeout=3600)
+                    report["export"] = run_cli(args.cli, "export", project, "--out", export_path, "--subtitles", "burn" if subtitles_enabled else "none", "--overwrite", timeout=3600)
         keep_label = browser_state.get("pageLabel")
         browser_call(space, f'await page.evaluate(() => document.querySelector("[data-oilstudio-playbook-hud]")?.remove()); await task.finish({{ keep: [{json.dumps(keep_label)}] }}); return true;', page_ref=page_ref)
         report["ok"] = True

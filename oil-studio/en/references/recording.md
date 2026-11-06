@@ -2,9 +2,12 @@
 
 Return to [SKILL.md](../SKILL.en.md).
 
-For a multi-beat web demonstration with captions, analysis cards, or aligned zooms, use [Web playbooks](#web-playbooks). The script controls pages through the browser automation Node API only; never use Computer Use in this workflow.
+For a multi-beat web demonstration with analysis cards or aligned zooms, use [Web playbooks](#web-playbooks). The script controls pages through the browser automation Node API only; never use Computer Use in this workflow. Do not add captions unless the user explicitly asks for them.
 
-`oilstudio record` prepares a window and controls recording. Add `--perform` to click or move natively; use your own computer/browser tools for typing and other actions. Without such tools, explain that you can control recording but the user must operate the target, and let the user decide whether to proceed.
+`oilstudio record` prepares a window and controls recording. For desktop applications, choose the most reliable control path available:
+- If you have your own capable Computer Use tool, operate the target window directly (physical clicks inside the recorded window are captured automatically, or report exact centers before clicking with `oilstudio record click --at <x>,<y>`).
+- If you do not have a built-in desktop tool or want deterministic headless control without screenshots, use `agent-desktop` (`agent-desktop snapshot --app <App> -i --compact --include-bounds` to get `@ref` IDs and `bounds`, report the element center with `oilstudio record click --at-fraction <u>,<v>`, then run `agent-desktop click <ref>` or `agent-desktop type --headed --interval-ms 55 <ref> <text>` so characters are typed one by one with the native input caret visible, without moving the physical mouse).
+- Add `--perform` to `record click` / `record move` only when you want Oil Studio to dispatch a physical click/move itself. Without any desktop control tool, explain that you can control recording while the user operates the target.
 
 ## Prepare
 
@@ -58,22 +61,24 @@ If your control tool fails and cannot continue, run `oilstudio record stop` or `
 
 ## Web playbooks
 
-Both modes require `node`. The default browser mode also requires the `ego-browser` command-line tool. The `stage-window` mode requires `swiftc` from the Xcode Command Line Tools. Check the selected mode’s dependencies before recording; if any are missing, ask the user to install them before continuing.
+Both modes require `node`. The `stage-window` mode uses macOS WebKit and `swiftc` from the Xcode Command Line Tools without requiring any third-party browser; when no browser host is explicitly specified and `ego-browser` is not installed, the script automatically uses `stage-window`. Check the selected mode’s dependencies before recording; if any are missing, ask the user to install them before continuing.
 
-Use a playbook for longer web demonstrations that need a caption per beat, an on-screen analysis card, or zooms aligned to the same source-time range. Before recording, the script opens the first URL through the browser automation runtime, then asks Oil Studio to select and record the single matching browser window. Oil Studio must be running and the user must grant recording access. Microphone, camera, and system audio stay off.
+Use a playbook for longer web demonstrations that need optional beat captions, an on-screen analysis card, or zooms aligned to the same source-time range. Before recording, the script opens the first URL through the browser automation runtime, then asks Oil Studio to select and record the single matching browser window. Oil Studio must be running and the user must grant recording access. Microphone, camera, and system audio stay off.
 
 ```sh
 python3 -B <Skill-directory>/scripts/record_playbook.py \
   --playbook <demo.json> --out-report <report.json> --export <video.mp4>
 
 python3 -B <Skill-directory>/scripts/record_playbook.py --playbook <demo.json> --dry-run
+python3 -B <Skill-directory>/scripts/record_playbook.py --inspect https://example.com
+python3 -B <Skill-directory>/scripts/record_playbook.py --playbook <demo.json> --rehearse
 ```
 
-The JSON has a `source`, optional `settings` using the `settings apply` patch shape, and a non-empty `beats` array. Each beat has a unique `id`, a required Chinese `subtitle`, optional `hud`, optional `zoom`, and `actions`. The first action in the first beat must be `open`; it prepares the opening page before recording and is not repeated during the take.
+The JSON has a `source`, optional `settings` using the `settings apply` patch shape, and a non-empty `beats` array. Each beat has a unique `id`, an optional `subtitle`, optional `hud`, optional `zoom`, and `actions`. The first action in the first beat must be `open`; it prepares the opening page before recording and is not repeated during the take.
 
 Select the source with `sourceId`, `app`, or `title`; when several are present, all conditions must match exactly one window. `app` uses a case-insensitive full-name match. `title` defaults to a case-insensitive substring match; set `exactTitle:true` for an exact match. The script reads the opened page's actual title and verifies it against the native capture window. A `sourceId`-only source needs no separate `title`, but the actual page title still protects against selecting the wrong window.
 
-Optional `browser.host` values are `browser` (the default) and `stage-window`. With an explicit `stage-window` host, do not set `source.sourceId`: the new stage receives a new window ID, so validation rejects this combination before starting the stage. Use `source.title` or `app` instead. `browser.scratchDir` chooses the parent directory for temporary files. Each run creates its own directory under the system temporary directory or that parent; never reuse a fixed working directory. The isolated stage's local control interface requires a random session token for each run.
+Optional `browser.host` values are `browser`, `ego-browser`, and `stage-window`. When the host is unspecified, a failed browser window match can fall back to the stage; an explicit browser host or `browser.page: user` prevents fallback. With an explicit `stage-window` host, do not set `source.sourceId`: the new stage receives a new window ID, so validation rejects this combination before starting the stage. Use `source.title` or `app` instead. `browser.scratchDir` chooses the parent directory for temporary files. Each run creates its own directory under the system temporary directory or that parent; never reuse a fixed working directory. The isolated stage's local control interface requires a random session token for each run.
 
 `browser.preflightSeconds` accepts 0–10. A positive value records a short probe and extracts OCR text from a frame at source time `min(500, max(0, duration in milliseconds - 1))`, keeping the frame within the actual take. `browser.preflightContains` is an optional string array; when present, every string must occur in the OCR text, ignoring case and whitespace. Without it, preflight makes no assumptions about page-specific text. `--preflight-only` stops after this probe and requires a positive `preflightSeconds`.
 
@@ -81,8 +86,12 @@ Command help, validation messages, and runtime errors use `OILSTUDIO_LANGUAGE` (
 
 `hud` accepts `badge`, `title`, `detail`, `pills:[{label,value,color?}]`, and `position: top-right|bottom-left|top-left`. The floating card uses an isolated Shadow DOM and `pointer-events:none`, then is removed after recording or on failure. `zoom` accepts `level`, `transition`, and either `selector` or `target:{x,y}`. A selector uses the center of a visible element; target coordinates are 0–1 fractions of the web viewport. The script includes browser chrome offsets measured from `outerWidth - innerWidth` and `outerHeight - innerHeight` when converting to full-window normalized coordinates. The zoom range matches its beat and must satisfy the 600 ms minimum.
 
-Supported actions are `open:{url}`, `click` / `move` with `selector` or window-relative `fraction:{u,v}`, `scroll` with `y` or `selector` and optional `durationMs`, `input` with `selector,value` or `selector,from,to,durationMs`, `eval:{script}`, `wait:{ms}`, and `mark`. Selectors are CSS selectors in the page DOM. Before a selector click or hover, the script measures its center, reports the point with `record click` or `record move`, then dispatches the real page action. Explicit fractions use the full captured window and are converted to viewport coordinates. Scroll and numeric input transitions are animated in the page.
+Supported actions are `open:{url}`, `click` / `move` with `selector` or window-relative `fraction:{u,v}`, `scroll` with `y` or `selector` and optional `durationMs`, `input` with `selector,value` or `selector,from,to,durationMs`, `press` with `key` (such as `Enter`, `Escape`, `Tab`, or `Meta+k`) and an optional `selector`, `eval:{script}`, `wait:{ms}`, and `mark`. Selectors are CSS selectors in the page DOM. Before a selector click or hover, the script measures its center, reports the point with `record click` or `record move`, then dispatches the real page action. Explicit fractions use the full captured window and are converted to viewport coordinates. Scroll and numeric input transitions are animated in the page.
 
-The script samples `record status.durationSourceMs` around each beat to create source-time captions. It applies optional settings, builds a fingerprinted zoom proposal and runs `plan validate` / `plan submit`, then calls `subtitles apply` with the cue track. `--export` runs `export --subtitles burn` only if every change was directly applied; otherwise it records the pending result and skips export. On failure, it attempts to discard an unfinished take. `--dry-run` validates the playbook without opening a browser or starting recording; `--out-report` writes source matching, cue ranges, proposals, and export status.
+The script applies optional settings, builds a fingerprinted zoom proposal and runs `plan validate` / `plan submit`, and leaves captions off by default (it calls `subtitles apply` and burns captions on `--export` only when the user explicitly requests captions and `settings.subtitles.enabled` is set to `true` alongside nonempty beat `subtitle` text; otherwise `--export` uses `--subtitles none`). If any change was not directly applied, it records the pending result and skips export. On failure, it attempts to discard an unfinished take. `--dry-run` validates the playbook without opening a browser or starting recording; `--out-report` writes source matching, cue ranges, proposals, and export status.
 
 `PERMISSION_REQUIRED` means recording or Accessibility permission is missing. Ambiguous windows, occluded targets, and rejected geometry changes return `VALIDATION_FAILED`.
+
+`--inspect <url>` opens an isolated stage, waits for the page to settle, and returns viewport, scroll container, and interactive element details with selectors and positions; no playbook is needed. `--rehearse` runs actions in order and checks zoom selectors in the stage without recording. Page actions still take effect; use it only on pages where those actions are permitted.
+
+For Playbook zooms, `mode` defaults to `manual`, which requires one `selector` or `target`. Explicit `auto` follows pointer intents and must not include a target. A selector is resolved before the beat actions, so later scrolling does not change its target.
