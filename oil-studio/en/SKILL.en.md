@@ -4,12 +4,13 @@ description: >
   Record and edit local Oil Studio recording projects: demonstrate a window or screen using your own app-control tools,
   find projects, read transcripts and generate captions, refine voice-over recordings by removing retakes, slips, abandoned sentences,
   and gaps, tighten pauses, remove idle time, adjust zooms and project settings, proofread captions, add chapters, translate captions into
-  English, and export SRT files or videos. Editing proposals are reviewed in Oil Studio by default; caption corrections and chapters
+  English, synthesize AI voice-over narration, and export SRT files or videos. Editing proposals are reviewed in Oil Studio by default; caption corrections and chapters
   apply immediately and can be undone. Use when the user mentions Oil Studio or recording projects, asks to record
   an app demonstration, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
+  用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示、精剪口播、收紧停顿、删除操作空档、调整画面缩放、校对或翻译字幕、划分章节、合成 AI 配音并导出成片。
 metadata:
-  version: 0.9.11
+  version: 0.9.12
   minAppVersion: 0.3.26
 ---
 
@@ -23,7 +24,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.11 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.12 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.

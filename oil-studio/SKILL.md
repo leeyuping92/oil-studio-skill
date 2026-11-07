@@ -1,13 +1,18 @@
 ---
 name: oil-studio
 description: >
+  Record and edit local Oil Studio recording projects on macOS: record an app or webpage demo by driving the target window,
+  find projects, read transcripts and generate captions, fine-cut voice-overs by removing retakes, slips, abandoned sentences,
+  and pauses, trim idle gaps, adjust zooms and project settings, proofread or translate captions into English, add chapters,
+  synthesize AI voice-over narration, and export MP4, GIF, or SRT files. Use when the user mentions Oil Studio or recording projects,
+  or asks to record a demo, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a screen recording.
   用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示（由你操作被录的应用）、查找工程、读取转录、生成字幕、
   为口播录屏制定精剪方案（删重说、口误、说到一半放弃的话和空白）、收紧停顿、删除操作之间的空档、调整画面缩放与工程配置、校对字幕、
-  划分章节、翻译英文字幕、导出 SRT 字幕或成片。剪辑等方案默认由用户在 App 里确认；字幕校对与章节直接生效，可撤销。
+  划分章节、翻译英文字幕、合成 AI 配音、导出 SRT 字幕或成片。剪辑等方案默认由用户在 App 里确认；字幕校对与章节直接生效，可撤销。
   用户提到 Oil Studio、录屏工程，或要求录一段操作演示、剪掉录屏里的重说口误、调整录屏的缩放、拿到或校对录屏的字幕、导出录屏成片时使用。
   不用于普通 MP4/MOV 视频文件的剪辑或加字幕，也不用于直接编辑工程目录里的文件。
 metadata:
-  version: 0.9.11
+  version: 0.9.12
   minAppVersion: 0.3.26
 ---
 
@@ -21,7 +26,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.11 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.12 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。

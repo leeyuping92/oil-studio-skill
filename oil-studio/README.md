@@ -1,10 +1,20 @@
+# Oil Studio Agent Skill — Language Selection & Boundaries
+
+For English instructions, start at [en/SKILL.en.md](en/SKILL.en.md). For Chinese instructions, start at [SKILL.md](SKILL.md). The app installs both languages together as one Skill; choose one entry based on the user's conversation language and do not run both. Both entries support English and Chinese voice-overs. To override CLI output language without changing app preferences, pass `--lang en` or `--lang zh-Hans`. Speech recognition language is separate: pass `transcribe --locale en-US` or `--locale zh-CN` when needed.
+
+## Data, permissions, and boundaries
+
+Requires an Apple silicon Mac running macOS 15 or later and an Oil Studio recording project (`.oilstudio`). Ordinary MP4/MOV editing does not use this Skill. The agent accesses projects exclusively through `oilstudio` and never reads or writes files inside a `.oilstudio` package directly; existing projects from other recording apps are imported read-only first without altering the original. Chapter progress bars (top or bottom) apply immediately and can be edited or undone in the app.
+
+Recording permissions are granted by the user in macOS and Oil Studio, and only capture the window or region specified. On-device Whisper transcription never uploads audio; Alibaba Cloud Bailian uploads audio to the selected region only when configured and chosen. Initial captions are generated and saved via `subtitles generate` (undoable); `transcribe` prepares the transcript cache only. Project settings are managed via `settings schema/get/apply`, and exports support MP4, GIF, and SRT. Editing and zoom proposals await user confirmation in the app by default (autonomous agent recordings or projects with auto-apply enabled apply immediately and remain undoable with ⌘Z).
+
+---
+
 # Oil Studio Agent Skill：语言选择
 
 中文版入口是 `SKILL.md`，英文版入口是 `en/SKILL.en.md`。App 安装的同一个 Skill 包含两版；Agent 按用户当前对话语言选择入口，用户明确指定时以用户要求为准。两个入口的任务、命令、提案格式、权限边界和确认流程相同，不同时执行两遍。
 
 英文入口加载 `en/references/`，中文入口加载 `references/`。两版都覆盖中文和英文口播；指令语言不等于音频语言。转录默认使用工程的识别语言，需要覆盖时用 `oilstudio transcribe <project> --locale en-US` 或 `--locale zh-CN`。命令行帮助、进度与错误默认跟随 App 的语言，可在任意命令上指定 `--lang en` / `--lang zh-Hans`；这不会更改用户的 App 设置，也不改变 JSON 字段名。
-
-For English instructions, start at [SKILL.en.md](en/SKILL.en.md). The app installs both languages together. Choose one workflow based on the user's conversation language; do not run both. To override command output language without changing app preferences, use `--lang en` or `--lang zh-Hans`. Speech language is separate: use `transcribe --locale en-US` or `--locale zh-CN` when needed.
 
 `en/SKILL.en.md` 与中文入口放在同一个包内，作为同一个已安装 Skill 的替代语言入口；它不是第二个需要安装或自动发现的 Skill。两版参考资料分别存放，便于按当前语言读取。
 

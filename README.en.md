@@ -2,11 +2,11 @@
   <img src="./assets/readme/hero.en.png" width="100%" alt="oil-studio: ask your agent once, and it uses Oil Studio to cut retakes, pauses, and slips from a screen recording, then leaves the changes for you to apply in the app">
 </p>
 
-<p align="center"><a href="README.md">简体中文</a> · <b>English</b></p>
+<p align="center"><a href="README.md#简体中文">简体中文</a> · <b>English</b></p>
 
 # Oil Studio Agent Skill
 
-Let Claude Code, Codex, and other agents record and edit screen recordings with [Oil Studio](https://studio.oiloil.org): cut retakes, slips, and pauses, proofread captions, add chapters, and export the finished video. The agent listens, looks, and decides; Oil Studio does the editing. Editing proposals await review, while caption corrections and chapters apply immediately and can be undone.
+Let Claude Code, Codex, and other agents record and edit screen recordings with [Oil Studio](https://studio.oiloil.org/en/): cut retakes, slips, and pauses, proofread captions, add chapters, synthesize AI narration, and export the finished video. The agent listens, looks, and decides; Oil Studio does the editing. Editing proposals await review, while caption corrections and chapters apply immediately and can be undone.
 
 ## Try it
 
@@ -41,9 +41,15 @@ Proofread this project’s captions, translate them into English, and export an 
 
 ## Get started
 
-**Requirements:** a Mac with Apple silicon running macOS 15 or later, and Oil Studio ([website](https://studio.oiloil.org) · [download](https://download.oiloil.org/studio/OilStudio.dmg)) at or above `metadata.minAppVersion` in [SKILL.en.md](oil-studio/en/SKILL.en.md).
+**Requirements:** a Mac with Apple silicon running macOS 15 or later, and Oil Studio ([website](https://studio.oiloil.org/en/) · [download](https://download.oiloil.org/studio/OilStudio.dmg) · `brew install --cask oil-oil/tap/oil-studio`) at or above `metadata.minAppVersion` in [SKILL.en.md](oil-studio/en/SKILL.en.md).
 
 **Recommended: install from the app.** In Oil Studio, open Settings › AI Agent and click Install. The app installs the Skill and the `oilstudio` command-line tool, and keeps both up to date with the app.
+
+**Or install with the Skills CLI (`skills.sh`):**
+
+```sh
+npx skills add oil-oil/oil-studio-skill
+```
 
 **Or install from GitHub.** Clone the repository and link `oil-studio/` into your agents’ Skill folders (existing entries with the same name are left in place):
 
