@@ -1,6 +1,18 @@
 # Proposal formats
 
-Return to [SKILL.md](../SKILL.en.md). Validate cut/zoom/layout plans before submission. `subtitles apply` validates caption edits against their original text.
+Return to [SKILL.md](../SKILL.en.md). Validate cut, zoom, layout, overlay, and redaction plans before submission. `subtitles apply` validates caption edits against their original text.
+
+## Contents
+
+- [Cut plan](#cut-plan-plan-validate--plan-submit)
+- [Filler coverage check](#filler-coverage-check)
+- [Zooms](#zooms-zooms)
+- [Titles, images, and B-roll](#titles-images-and-b-roll-overlays)
+- [Redactions](#redactions-redactions)
+- [Layouts](#layouts-layouts)
+- [Submission result](#submission-result)
+- [Caption edits](#caption-edits-subtitles-apply)
+- [Whole-track captions](#whole-track-captions-subtitles-apply)
 
 ## Cut plan (`plan validate` / `plan submit`)
 
@@ -94,6 +106,71 @@ Plans may contain any combination of `decisions`, `zooms`, and `layouts`.
 
 At most one update/remove per zoom ID in one plan; ordering duplicate operations must not change the outcome.
 
+## Titles, images, and B-roll (`overlays`)
+
+A plan may combine `decisions`, `zooms`, `layouts`, `overlays`, and `redactions`. `overlays` and `redactions` are top-level arrays. Proposal fields are flat; do not copy the nested `content` shape returned by `context.overlays`.
+
+```json
+"overlays": [
+  {
+    "action": "add", "id": "o-title-1", "kind": "text", "text": "Start with the main flow",
+    "template": "title", "anchorSourceMs": 84200, "durationOutputMs": 3200,
+    "frame": {"x": 0.5, "y": 0.13, "fontSize": 0.055}, "opacity": 1,
+    "enter": {"style": "pop", "durationMs": 300}, "exit": {"style": "fade", "durationMs": 250}
+  },
+  {
+    "action": "add", "id": "o-image-1", "kind": "image", "layer": "screen",
+    "sourcePath": "/absolute/local/path/feature.png", "anchorSourceMs": 120000, "durationOutputMs": 2400,
+    "fit": "fit", "focus": {"x": 0.5, "y": 0.5},
+    "enter": {"style": "dissolve", "durationMs": 300}, "exit": {"style": "dissolve", "durationMs": 300}
+  },
+  {"action": "update", "id": "o-title-1", "durationOutputMs": 4000},
+  {"action": "remove", "id": "o-image-old"}
+]
+```
+
+| Field | Values and rules |
+| --- | --- |
+| `action`, `id` | `add`, `update`, or `remove`; every item needs a unique, nonempty `id`. An add ID must not conflict with the project. An update/remove ID must match exactly one existing item. Remove needs only `action` and `id`. |
+| `kind` | `text` or `image`, at the top level of the item. |
+| `text`, `template` | Text items require `text`. Optional `template` is `title` or `label`. Text can only use the `float` layer; omit `layer` to use float, or specify `float` explicitly. |
+| `sourcePath`, `file` | Image items need one: `sourcePath` is an absolute local image path; `file` is an existing filename in the project's `assets/overlays/`. Do not include a directory path in `file`. |
+| `layer` | Required for images: `float` overlays the recording; `screen` replaces the recorded picture. |
+| `anchorSourceMs`, `durationOutputMs` | Required for text and image. The anchor uses source-time milliseconds; display duration uses output-time milliseconds. |
+| `frame` | Optional float placement and size. Coordinates are normalized canvas center points: images use `{x,y,width}` and text uses `{x,y,fontSize}`. Explicit values are 0–1; `width` / `fontSize` must be greater than 0. Defaults are centered images at width 0.25 and text size 0.055. |
+| `opacity` | Optional float opacity from 0 to 1. Screen images reject explicit `opacity`; use `enter` / `exit` for no effect or a dissolve transition. |
+| `fit`, `focus` | For `screen` images only. `fit` is `fill` or `fit`; `focus` is normalized `{x,y}` from 0 to 1. |
+| `enter`, `exit` | Optional `{style,durationMs}`. Float styles: `none`, `fade`, `pop`, or `rise`; screen replacement styles: `none` or `dissolve`. Defaults are `pop`/300 ms and `fade`/250 ms for floats, or `dissolve`/300 ms for screen replacements. |
+
+An update sends only changed fields; the app merges them into the existing item and preserves omitted and unknown project fields. Adds need the required fields for their kind. An image at `sourcePath` is imported into `assets/overlays/` only when the accepted change is applied and is deduplicated by SHA-256. `plan validate` is read-only and does not write the project or import the image. After applying, check the plan receipt's actual `applied` and `skipped` entries, then inspect key frames with `frame --text`; export and recheck the final picture when a video is requested.
+
+## Redactions (`redactions`)
+
+Redactions are a separate top-level array, not nested inside `overlays`. `region` is a fixed normalized rectangle in the original recording frame; it does not automatically track a moving object.
+
+```json
+"redactions": [
+  {
+    "action": "add", "id": "r-account-1",
+    "sourceStartMs": 50000, "sourceEndMs": 61500,
+    "region": {"x": 0.61, "y": 0.08, "width": 0.27, "height": 0.09},
+    "style": "pixelate", "reason": "Cover the account information in the upper right"
+  },
+  {"action": "update", "id": "r-account-existing", "style": "blur", "reason": "Use blur for the account information"},
+  {"action": "remove", "id": "r-obsolete"}
+]
+```
+
+| Field | Values and rules |
+| --- | --- |
+| `action`, `id` | `add`, `update`, or `remove`; `id` must be unique and nonempty. Add IDs must not conflict; update/remove must uniquely match an existing item. Remove needs only `action` and `id`. |
+| `sourceStartMs`, `sourceEndMs` | Valid increasing source-time milliseconds within one recording segment. |
+| `region` | Normalized `{x,y,width,height}` rectangle entirely within the 0–1 frame; width and height must be positive. |
+| `style` | `pixelate`, `blur`, or `fill`. |
+| `reason` | A nonempty string is required on add. An update may omit it when the existing item already has a nonempty reason; supply one when the existing value is missing or empty. |
+
+Updates merge only the supplied fields; the resulting item must retain valid times, region, style, and a nonempty reason. An update may inherit an existing nonempty reason, but must supply one to repair a missing or empty value. For moving content, define and inspect separate regions over their individual time ranges. Do not describe a fixed box as object tracking. Passing validation does not mean that the mask has been applied: after application, inspect frames with `oilstudio frame <project> --source-ms <milliseconds> --text --out <png>` and check both the picture and recognized text. If exporting, inspect and play the output to confirm coverage throughout the requested range. If sensitive content remains visible, correct and revalidate the plan before reporting it complete.
+
 ## Layouts (`layouts`)
 
 Only for projects with a camera. This is the sole proposal section using **pre-submission output-time milliseconds**. Read existing segments from context's `layouts`.
@@ -122,6 +199,8 @@ Only for projects with a camera. This is the sole proposal section using **pre-s
 ```
 
 `autoApplied: false` awaits approval; use `proposal status <proposalId> --wait`. With true, only `applied` entries have changed; `skipped` entries have not.
+
+Receipt indexes follow the items in the same plan: `decisions`, `zooms`, `layouts`, `overlays`, then `redactions`. Check each item. Applied changes can be undone in Oil Studio with ⌘Z.
 
 ## Caption edits (`subtitles apply`)
 

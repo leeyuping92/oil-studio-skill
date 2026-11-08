@@ -3,14 +3,14 @@ name: oil-studio
 description: >
   Record and edit local Oil Studio recording projects: demonstrate a window or screen using your own app-control tools,
   find projects, read transcripts and generate captions, refine voice-over recordings by removing retakes, slips, abandoned sentences,
-  and gaps, tighten pauses, remove idle time, adjust zooms and project settings, proofread captions, add chapters, translate captions into
-  English, synthesize AI voice-over narration, and export SRT files or videos. Editing proposals are reviewed in Oil Studio by default; caption corrections and chapters
+  and gaps, tighten pauses, remove idle time, adjust zooms and project settings, add titles, labels, or image overlays, redact sensitive screen regions,
+  proofread captions, add chapters, translate captions into English, synthesize AI voice-over narration, and export SRT files or videos. Editing proposals are reviewed in Oil Studio by default; caption corrections and chapters
   apply immediately and can be undone. Use when the user mentions Oil Studio or recording projects, asks to record
-  an app demonstration, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a
+  an app demonstration, refine a voice-over, add a title or image, redact screen content, adjust recording zooms, generate or correct captions, or export a
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
-  用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示、精剪口播、收紧停顿、删除操作空档、调整画面缩放、校对或翻译字幕、划分章节、合成 AI 配音并导出成片。
+  用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示、精剪口播、收紧停顿、删除操作空档、调整画面缩放、添加标题/图片、遮盖敏感区域、校对或翻译字幕、划分章节、合成 AI 配音并导出成片。
 metadata:
-  version: 0.9.12
+  version: 0.9.13
   minAppVersion: 0.3.26
 ---
 
@@ -20,11 +20,11 @@ Use `oilstudio` to work with recording projects. Each command returns a JSON obj
 
 Use this English workflow for an English conversation; use the Chinese entry at the package root for Chinese. Follow only one entry. Both support Chinese and English audio. Command output follows the app language; add `--lang en` to override it without changing preferences. Speech language is separate: `transcribe --locale en-US` or `--locale zh-CN` overrides the project's language.
 
-Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions) · [Proofread captions](#proofread-captions) · [Export video](#export-video). See the task table for other workflows.
+Task navigation: [Fine cut](#fine-cut) · [Overlays and redactions](#add-overlays-and-redactions) · [Generate captions](#generate-captions) · [Proofread captions](#proofread-captions) · [Export video](#export-video). See the task table for other workflows.
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.12 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.13 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.
@@ -48,6 +48,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 | Remove retakes, slips, and abandoned speech | Fine cut |
 | Remove only pauses and silence | Tighten pauses |
 | Make the subject easier to see | Adjust zooms |
+| Add a title, label, or image/B-roll, or cover a sensitive screen region | Add overlays and redactions |
 | Generate initial captions | Generate captions |
 | Correct transcription errors, residual fillers, or line wrapping | Proofread captions |
 | Change canvas, background, cursor, camera, audio, or export settings | Adjust project settings |
@@ -71,6 +72,7 @@ Task navigation: [Fine cut](#fine-cut) · [Generate captions](#generate-captions
 - During intermediate steps before submitting final changes or finishing export, run `oilstudio progress "<completed step>" --step <step>/<total> --project <project>`; do not call `oilstudio progress` again after the final submission or completion. `delivered: false` means the app is closed; continue.
 - Use a new temporary filename for each `--out`; existing files are not overwritten.
 - Validate before submitting. Fix rejected entries and validate again. `plan validate` checks submitted entries, not candidates omitted from the plan.
+- Submit titles, labels, image/B-roll overlays, and redactions as the plan's top-level `overlays` and `redactions` arrays. `plan validate` validates without changing the project or importing images. Check the actual applied and skipped entries in the submission receipt.
 - When the user returns with a continuation, correction, or status question, check the saved proposal status first. If applied, resume already-authorized work from current project data without asking for authorization again. Preserve pending work while review continues. Never resubmit `USER_DISMISSED` automatically. For invalidated proposals, fetch fresh evidence instead of copying new fingerprints onto an old plan.
 
 ## Record a demonstration
@@ -169,6 +171,17 @@ For chapters, prepare from post-cut captions with `--plan` after step 1, but sub
    - Omit `--zoom none` when checking the current effect.
 3. Follow Proposal formats to write `zooms`; combine them with cuts in one plan when fine-cutting.
 4. Validate, submit, and report as in Fine cut steps 5–7.
+
+## Add overlays and redactions
+
+Use this workflow to add a title, label, or still image/B-roll, or to cover sensitive screen content. Run `oilstudio context <project> --out <temporary-file>` and read the existing `overlays` and `redactions`. Inspect the picture and recognized text with `oilstudio frame <project> --source-ms <milliseconds> --text --out <png>` when needed.
+
+1. Following [Proposal formats](references/proposal-formats.md), add top-level `overlays` and/or `redactions` arrays to the plan. They can accompany `decisions`, `zooms`, and `layouts`. The proposal fields are flat; do not copy the nested shape used by `context.overlays`.
+2. For an image, `sourcePath` must be an absolute local image path; an existing filename in the project's `assets/overlays/` can be referenced with `file`. `plan validate` does not modify the project or import images. An accepted submission imports the image into `assets/overlays/`, deduplicated by SHA-256.
+3. Run `oilstudio plan validate <plan>`, fix every rejected item, and validate again before submitting once with `oilstudio plan submit <plan>`. Check the receipt's `applied` and `skipped` indexes. If `autoApplied: false`, save `proposalId` and follow the shared review rules. Applied changes can be undone with ⌘Z in Oil Studio.
+4. After application, inspect relevant times with `oilstudio frame <project> --output-ms <milliseconds> --text --out <png>`. Check the visible title, image, or mask; when exporting, verify the redaction still covers the sensitive area throughout the exported video. If OCR or visual inspection still exposes sensitive content, revise and revalidate the proposal before reporting it complete.
+
+A redaction uses a fixed rectangle in source-frame coordinates and does not automatically track a moving object. Do not promise automatic tracking. For content that moves, propose separate time ranges and regions only when you can inspect them; otherwise ask the user to review the coverage.
 
 ## Generate captions
 

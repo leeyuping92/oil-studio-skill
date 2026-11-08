@@ -1,18 +1,13 @@
 ---
 name: oil-studio
 description: >
-  Record and edit local Oil Studio recording projects on macOS: record an app or webpage demo by driving the target window,
-  find projects, read transcripts and generate captions, fine-cut voice-overs by removing retakes, slips, abandoned sentences,
-  and pauses, trim idle gaps, adjust zooms and project settings, proofread or translate captions into English, add chapters,
-  synthesize AI voice-over narration, and export MP4, GIF, or SRT files. Use when the user mentions Oil Studio or recording projects,
-  or asks to record a demo, clean up a voice-over, adjust recording zooms, generate or correct captions, or export a screen recording.
-  用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示（由你操作被录的应用）、查找工程、读取转录、生成字幕、
-  为口播录屏制定精剪方案（删重说、口误、说到一半放弃的话和空白）、收紧停顿、删除操作之间的空档、调整画面缩放与工程配置、校对字幕、
-  划分章节、翻译英文字幕、合成 AI 配音、导出 SRT 字幕或成片。剪辑等方案默认由用户在 App 里确认；字幕校对与章节直接生效，可撤销。
-  用户提到 Oil Studio、录屏工程，或要求录一段操作演示、剪掉录屏里的重说口误、调整录屏的缩放、拿到或校对录屏的字幕、导出录屏成片时使用。
-  不用于普通 MP4/MOV 视频文件的剪辑或加字幕，也不用于直接编辑工程目录里的文件。
+  Use Oil Studio to record and edit local recording projects on macOS: make demos, refine voice-overs, add titles or image overlays, redact screen regions,
+  handle captions and chapters, synthesize narration, configure projects, and export video. Use when a user mentions Oil Studio or asks to work on a recording project.
+  Not for editing ordinary MP4/MOV files, adding captions to them, or directly changing project files.
+  用 Oil Studio 处理本机录屏工程：录制演示、精剪口播、添加标题或图片、遮盖画面、处理字幕与章节、合成配音和导出。用户提到 Oil Studio 或录屏工程时使用。
+  不用于普通 MP4/MOV 视频剪辑、加字幕，或直接编辑工程文件。
 metadata:
-  version: 0.9.12
+  version: 0.9.13
   minAppVersion: 0.3.26
 ---
 
@@ -22,11 +17,11 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 通过命令行 `oilstudio` 操作录屏工程。命令行把结果写成一个 JSON 对象；你负责理解内容和做判断，命令行负责读写工程、校验和执行。
 
-任务导航：[精剪](#精剪) · [生成字幕](#生成字幕) · [校对字幕](#校对字幕) · [导出成片](#导出成片)。其余任务见下方选择表。
+任务导航：[精剪](#精剪) · [画面元素与打码](#添加画面元素与打码) · [生成字幕](#生成字幕) · [校对字幕](#校对字幕) · [导出成片](#导出成片)。其余任务见下方选择表。
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.12 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.13 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。
@@ -50,6 +45,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 | 剪掉重说、口误、废话，让口播更紧凑 | 精剪 |
 | 只去掉停顿和空白 | 收紧停顿 |
 | 调整放大效果，让观众看清正在讲的地方 | 调整缩放 |
+| 加标题、标签、图片/B-roll，或遮盖画面中的敏感区域 | 添加画面元素与打码 |
 | 生成初始字幕、给录屏加字幕 | 生成字幕 |
 | 改字幕里的错词、专有名词、残留语气词或断行 | 校对字幕 |
 | 改画幅、背景、光标、摄像头、声音或导出选项 | 调整工程配置 |
@@ -73,6 +69,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 - 在提交最终修改或完成导出之前的中间步骤，每完成一步运行一次 `oilstudio progress "<这一步做了什么>" --step <第几步>/<总步数> --project <工程>`，让用户在 App 里看到进度；最终修改已提交或整项任务完成后不要再调用 `oilstudio progress`。返回 `delivered: false` 表示 App 没开，继续工作即可。
 - `--out` 写临时文件时每次用新文件名（例如加上步骤编号）；命令不会覆盖已有文件。
 - 提交前必须先校验；校验不通过就修正后再校验，不要跳过。`plan validate` 只检查提交条目是否可执行，不会发现没有写进方案的漏删。
+- 标题、标签、图片/B-roll 与打码作为 `plan submit` 的 `overlays`、`redactions` 提案提交；`plan validate` 只校验，不写工程或导入素材。图片只有在应用被接受时才导入工程，并按提交回执核对实际应用与跳过项。
 - 用户回来继续、纠正或询问进度时，先查已保存的 `proposal status`。若已 `applied`，基于当前工程自动续做已授权任务，不重复索要确认；若仍在审阅，保留待办。`USER_DISMISSED` 不自动重提；工程变化导致失效时重新取证，不把新指纹直接贴进旧方案。
 
 ## 录制演示
@@ -174,6 +171,17 @@ oilstudio subtitles apply "<工程>" "$WORK/05-subtitle-edits.json"
    - 改完想确认效果时，不带 `--zoom none` 再看一次。
 3. 按 [提案格式](references/proposal-formats.md) 把缩放写进方案的 `zooms`；同时在精剪时，剪辑和缩放放进同一份方案。
 4. 按精剪第 5–7 步校验、提交和汇报。
+
+## 添加画面元素与打码
+
+用于在录屏中增加标题、标签或静态图片/B-roll，或遮盖敏感信息。先运行 `oilstudio context <工程> --out <临时文件>`，读取现有 `overlays` 与 `redactions`；需要确认画面内容时，用 `oilstudio frame <工程> --source-ms <毫秒> --text --out <png>` 查看带文字识别的画面。
+
+1. 按[提案格式](references/proposal-formats.md)在计划的顶层填写 `overlays` 和/或 `redactions`，可与 `decisions`、`zooms`、`layouts` 放在同一方案。计划里的字段是扁平的；已有 `context.overlays` 的读取结构不必复制成提案结构。
+2. 对图片，`sourcePath` 必须是本机图片的绝对路径，也可以引用工程素材目录中已有的文件名。`plan validate` 不会改工程或导入图片；提交被接受后，图片才导入工程素材目录，并按 SHA-256 去重。
+3. 运行 `oilstudio plan validate <方案文件>`，修正所有拒绝项后再提交一次校验；通过后运行一次 `oilstudio plan submit <方案文件>`。按回执里的 `applied` 和 `skipped` 核对每个条目。若 `autoApplied: false`，保存 `proposalId` 并按共同规则等待审阅结果；已应用的修改可在 Oil Studio 里按 ⌘Z 撤销。
+4. 应用后在相关时间点用 `oilstudio frame <工程> --output-ms <毫秒> --text --out <png>` 检查标题、图片和遮盖的实际画面；用户需要成片时再导出，并检查导出中打码持续覆盖敏感区域。若 OCR 或画面检查仍能看到敏感内容，先调整提案并重新校验，不要把未验证的遮盖说成已完成。
+
+打码区域是源画面上的固定矩形，不会自动跟踪移动对象。对象会移动时，不要承诺自动跟随；需要多个位置时按各自时间与区域单独提出，并逐段检查，无法确定覆盖范围就请用户复核。
 
 ## 生成字幕
 

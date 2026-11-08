@@ -9,6 +9,8 @@ For a multi-beat web demonstration with analysis cards or aligned zooms, use [We
 - If you do not have a built-in desktop tool or want deterministic headless control without screenshots, use `agent-desktop` (`agent-desktop snapshot --app <App> -i --compact --include-bounds` to get `@ref` IDs and `bounds`, report the element center with `oilstudio record click --at-fraction <u>,<v>`, then run `agent-desktop click <ref>` or `agent-desktop type --headed --interval-ms 55 <ref> <text>` so characters are typed one by one with the native input caret visible, without moving the physical mouse).
 - Add `--perform` to `record click` / `record move` only when you want Oil Studio to dispatch a physical click/move itself. Without any desktop control tool, explain that you can control recording while the user operates the target.
 
+Titles, images, and redactions are proposed after recording, not drawn into the live recording. To add a title, label, image/B-roll, or cover sensitive screen content, follow “Add overlays and redactions” in SKILL.md and submit a plan. See [Proposal formats](proposal-formats.md) for the fields, asset import behavior, and visual checks.
+
 ## Prepare
 
 - Confirm the subject and opening/ending states. Show a plan first for more than ten steps.
@@ -57,7 +59,8 @@ If your control tool fails and cannot continue, run `oilstudio record stop` or `
 1. Run `oilstudio idle <project> --submit`. It aligns delayed click reports, rebuilds automatic zooms from retained slices and changed regions, and immediately applies changes to recordings you made.
 2. Inspect the new duration/clips with `oilstudio context <project> --out <temporary-file>` and sample frames with `oilstudio frame <project> --output-ms <milliseconds> --out <png>`.
 3. Generated zooms follow reported clicks. Follow Adjust zooms for small text or actions lacking reports.
-4. When requested, run `oilstudio export <project> --out <path.mp4>`.
+4. For titles, labels, image/B-roll, or redactions, follow “Add overlays and redactions” in SKILL.md and check the proposal receipt. Redactions use a fixed region and do not track moving objects; after application, inspect with `frame --text` and review the exported video.
+5. When requested, run `oilstudio export <project> --out <path.mp4>`. With redactions, confirm they have applied and sample the exported sensitive ranges.
 
 ## Web playbooks
 
