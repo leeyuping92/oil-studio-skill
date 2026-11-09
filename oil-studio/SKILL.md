@@ -7,7 +7,7 @@ description: >
   用 Oil Studio 处理本机录屏工程：录制演示、精剪口播、添加标题或图片、遮盖画面、处理字幕与章节、合成配音和导出。用户提到 Oil Studio 或录屏工程时使用。
   不用于普通 MP4/MOV 视频剪辑、加字幕，或直接编辑工程文件。
 metadata:
-  version: 0.9.13
+  version: 0.9.14
   minAppVersion: 0.3.26
 ---
 
@@ -21,7 +21,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.13 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.9.14 oilstudio status`。
    - 命令不存在：告诉用户打开 Oil Studio，在「设置 › AI Agent」里点「安装」，然后停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。
@@ -214,7 +214,7 @@ oilstudio subtitles apply "<工程>" "$WORK/05-subtitle-edits.json"
 
 ## 划分章节
 
-1. 运行 `oilstudio chapters get <工程>`。成片不超过 180000 毫秒时不生成；已有章节且用户没有要求重新划分时保留，不重复提交。
+1. 运行 `oilstudio chapters get <工程>`。用户没有明确要求重新划分或增删时，保留已有章节不重复提交；用户明确要求添加、修改或重划章节时，不受视频时长限制，直接按用户要求在现有章节基础上增删或重新划分。
 2. 运行 `oilstudio subtitles get <工程> --out <临时文件>`，通读全部字幕；没有字幕时先按「生成字幕」处理。
 3. 读 [章节与翻译](references/chapters-and-translation.md) 的"章节"一节，决定章节边界和标题。位置不在章节文件里设置；用户要求顶部或底部时，另用 `settings apply` 修改 `subtitles.chapterProgressPosition`。
 4. 按格式写章节文件，运行 `oilstudio chapters apply <工程> <章节文件>`。章节直接生效并自动开启进度条，不需要用户确认，也不要额外等待章节审阅。

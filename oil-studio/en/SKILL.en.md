@@ -10,7 +10,7 @@ description: >
   recording. Not for editing ordinary MP4/MOV files or directly changing files inside a project package.
   用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示、精剪口播、收紧停顿、删除操作空档、调整画面缩放、添加标题/图片、遮盖敏感区域、校对或翻译字幕、划分章节、合成 AI 配音并导出成片。
 metadata:
-  version: 0.9.13
+  version: 0.9.14
   minAppVersion: 0.3.26
 ---
 
@@ -24,7 +24,7 @@ Task navigation: [Fine cut](#fine-cut) · [Overlays and redactions](#add-overlay
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.9.13 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.9.14 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, tell the user to open Oil Studio and choose Install in Settings › AI Agent, then stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.
@@ -211,7 +211,7 @@ Read [Project settings and export](references/video-settings-and-export.md). Dis
 
 ## Add chapters
 
-1. Run `oilstudio chapters get <project>`. Skip videos at or below 180000 ms. Keep existing chapters unless the user explicitly asks to reorganize them.
+1. Run `oilstudio chapters get <project>`. Keep existing chapters unless the user asks to add, edit, or reorganize them. When the user explicitly asks to add or update chapters, do not skip videos at or below 180000 ms; apply the requested changes directly.
 2. Run `oilstudio subtitles get <project> --out <temporary-file>` and read all captions. If none exist, follow “Generate captions” first.
 3. Read the Chapters section in [Chapters and translation](references/chapters-and-translation.md) and choose boundaries and titles. Position does not belong in this file; when the user requests top or bottom, use `settings apply` separately for `subtitles.chapterProgressPosition`.
 4. Write the chapter file and run `oilstudio chapters apply <project> <chapters>`. Chapters apply immediately and enable the progress bar without user confirmation or a chapter-review wait.

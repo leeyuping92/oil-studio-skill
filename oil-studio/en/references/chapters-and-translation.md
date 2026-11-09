@@ -4,11 +4,13 @@ Return to [SKILL.md](../SKILL.en.md).
 
 ## Chapters
 
-Read all captions and divide the video into broad phases: introduction/problem, operations, results, summary. Aim for 2–4 chapters in a three-to-five-minute video and 4–6 in longer videos. Starts must be at least 75 seconds apart; closer ones merge. Start the first chapter at the beginning.
+Read all captions and divide the video into broad phases: introduction/problem, setup, operations, results, summary. When dividing automatically, aim for 3–4 chapters in a three-to-five-minute video and 4–6 in longer videos; main sections are typically around a minute or more, while a natural 20–60 second intro or brief wrap-up can stand as its own chapter. Oil Studio does not merge chapters based on a fixed second threshold, and when the user explicitly asks to add or split a chapter, follow their request directly. Start the first chapter at the beginning.
 
-Use short descriptive titles: 2–8 Chinese characters or a brief English phrase. No numbering or punctuation. Long titles truncate on the progress bar. Start at the first cue of the new topic using its `id` as `fromCue` or its `sourceStartMs`.
+For the first chapter, `fromCue` referencing the first visible caption snaps to output 0:00, even if speech starts later or the start of that caption has been cut. An explicit `sourceStartMs` must still correspond to the beginning of the current output. Adjacent chapter boundaries must be at least 1 ms apart in output time.
 
-`chapters get` returns chapters, `outputDurationMs`, `enabled`, and `position`. Generate chapters only for videos strictly longer than 180000 ms. Keep existing chapters unless the user explicitly asks to reorganize them. When the target project is open in the foreground and no review is active, `chapters apply` validates and automatically replaces the whole set and enables the progress bar. Always inspect `autoApplied` and `pendingReason` in the JSON response: the proposal may be queued behind an active review or when the project is not open in the foreground. Applied chapters can be undone, edited, or deleted in the app.
+Use short descriptive titles: 2–8 Chinese characters or a brief English phrase (use shorter 2–4 character titles for narrower segments). No numbering or punctuation. Long titles truncate on the progress bar. Start at the first cue of the new topic using its `id` as `fromCue` or its `sourceStartMs`.
+
+`chapters get` returns chapters, `outputDurationMs`, `enabled`, and `position`. Only proactive chapter creation during caption generation is limited to videos strictly longer than 180000 ms with no existing chapters; when the user explicitly requests adding or editing chapters, apply them regardless of video duration. When the target project is open in the foreground and no review is active, `chapters apply` validates and automatically replaces the whole set and enables the progress bar. Always inspect `autoApplied` and `pendingReason` in the JSON response: the proposal may be queued behind an active review or when the project is not open in the foreground. Applied chapters can be undone, edited, or deleted in the app.
 
 Position is a separate appearance setting. Use `settings get/apply` with `subtitles.chapterProgressPosition` (`bottom` or `top`); do not add it to the chapter file.
 
