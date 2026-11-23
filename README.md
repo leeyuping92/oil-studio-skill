@@ -47,6 +47,8 @@ Proofread this project’s captions, translate them into English, and export an 
 
 **Recommended: install from the app.** In Oil Studio, open Settings › AI Agent and click Install. The app installs the Skill and the `oilstudio` command-line tool, and keeps both up to date with the app.
 
+**Mac App Store edition:** run `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`. It installs the command-line tool and Skill that match your Oil Studio version. Run it again after Oil Studio updates. See [studio.oiloil.org/en/agent](https://studio.oiloil.org/en/agent/).
+
 **Or install with the Skills CLI (`skills.sh`):**
 
 ```sh
@@ -152,6 +154,8 @@ The Skill is open source under the [MIT License](LICENSE). The Oil Studio app is
 **需要：** macOS 15 及以上的 Apple 芯片 Mac，以及 Oil Studio（[官网](https://studio.oiloil.org) · [下载](https://download.oiloil.org/studio/OilStudio.dmg)），版本不低于 [SKILL.md](oil-studio/SKILL.md) 中的 `metadata.minAppVersion`。
 
 **推荐：由 App 安装。** 打开 Oil Studio「设置 › AI Agent」，点“安装”。App 会安装 Skill 和命令行 `oilstudio`，并随 App 一起更新。
+
+**Mac App Store 版：** 运行 `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`，安装与 Oil Studio 同版本的命令行和 Skill；Oil Studio 更新后再运行一次。说明见 [studio.oiloil.org/agent](https://studio.oiloil.org/agent/)。
 
 **或者用 Skills CLI 安装：**
 

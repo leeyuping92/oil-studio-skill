@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
@@ -22,9 +23,22 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "oil-studio/scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import record_playbook as playbook
+import record_playbook_bridge as bridge_module
 import record_playbook_browser as stage_browser
 
 CJK = re.compile(r"[\u3400-\u9fff]")
+_bridge_patch = None
+
+
+def setUpModule():
+    # main() would start a real Node bridge; tests that exercise the bridge itself start it explicitly.
+    global _bridge_patch
+    _bridge_patch = mock.patch.object(playbook, "open_bridge", return_value=mock.Mock())
+    _bridge_patch.start()
+
+
+def tearDownModule():
+    _bridge_patch.stop()
 
 
 def make_book(source=None, browser=None):
@@ -90,7 +104,12 @@ class SourceMatchingTests(unittest.TestCase):
         self.assertEqual(selected["title"], "Later page")
 
     def test_validation_accepts_source_id_without_title(self):
-        playbook.validate_playbook(make_book({"sourceId": "window-1"}))
+        playbook.validate_playbook(make_book({"sourceId": "window-1"}, browser={"cdpURL": "http://127.0.0.1:9222"}))
+
+    def test_source_id_needs_a_host_that_reuses_an_open_window(self):
+        # The default isolated stage opens a new window each time, so an existing window id can't apply.
+        with self.assertRaises(playbook.PlaybookError):
+            playbook.validate_playbook(make_book({"sourceId": "window-1"}))
 
     def test_validation_checks_all_source_fields_even_with_source_id(self):
         for source in ({"sourceId": " "}, {"sourceId": "window-1", "title": None}, {"sourceId": "window-1", "app": 3}):
@@ -284,11 +303,6 @@ class RecordingSafetyTests(unittest.TestCase):
         with self.assertRaises(playbook.PlaybookError):
             playbook.active_recording_status(lambda *_: {"state": "paused", "durationSourceMs": 1200})
 
-    def test_preflight_reads_the_project_at_its_editor_owned_path(self):
-        project = Path("/tmp/recorded.oilstudio")
-        result = {"path": str(project), "openedInEditor": True, "stoppedBy": "agent"}
-        self.assertEqual(playbook.preflight_project_path(result), project)
-
     def test_recorded_auto_zoom_is_replaced_only_when_source_ranges_overlap(self):
         desired = [{"sourceStartMs": 100, "sourceEndMs": 200}]
         self.assertFalse(playbook.recorded_auto_zoom_overlaps(
@@ -326,6 +340,184 @@ class RecordingSafetyTests(unittest.TestCase):
         self.assertIn("await page.click(data.selector", script)
         self.assertIn("Array.from(String(data.to ?? data.value ?? \"\"))", script)
         self.assertIn("KeyboardEvent(\"keydown\"", script)
+
+
+    def test_pointer_actions_send_no_caption_to_the_browser(self):
+        # Agent browsers draw a pointer action's label next to their cursor, inside the recorded page.
+        point = {"u": 0.5, "v": 0.5, "viewX": 100, "viewY": 100}
+        for action in ({"action": "click", "selector": "#a"}, {"action": "move", "selector": "#a"},
+                {"action": "click", "fraction": {"u": 0.5, "v": 0.5}}, {"action": "move", "fraction": {"u": 0.5, "v": 0.5}},
+                {"action": "input", "selector": "#a", "value": "x"}):
+            with self.subTest(action=action), mock.patch.object(stage_browser, "action_point", return_value=point), \
+                    mock.patch.object(stage_browser, "browser_call") as browser_call:
+                stage_browser.run_action("oilstudio", "space", window(), {"id": "a"}, 0, action, False, mock.Mock())
+            for call in browser_call.call_args_list:
+                self.assertNotIn("label", call.args[1])
+
+    def test_wheel_declares_the_cursor_then_scrolls_natively_at_that_point(self):
+        run_cli = mock.Mock(return_value={"durationSourceMs": 1200})
+        point = {"u": 0.4, "v": 0.6, "viewX": 300, "viewY": 420}
+        with mock.patch.object(stage_browser, "action_point", return_value=point), \
+                mock.patch.object(stage_browser, "browser_call") as browser_call:
+            declared = stage_browser.run_action("oilstudio", "space", window(), {"id": "frame"}, 2,
+                {"action": "wheel", "fraction": {"u": 0.4, "v": 0.6}, "deltaY": 800, "durationMs": 500}, False, run_cli)
+        run_cli.assert_called_once_with("oilstudio", "record", "move", "--at-fraction", "0.400000,0.600000", "--id", "play-frame-3")
+        self.assertEqual(declared, {"durationSourceMs": 1200})
+        script = browser_call.call_args.args[1]
+        self.assertIn('"x": 300', script)
+        self.assertIn('"deltaY": 800', script)
+        self.assertIn("await page.mouse.move(data.x, data.y)", script)
+        self.assertIn("await page.mouse.wheel(", script)
+
+    def test_switch_tab_moves_the_hud_to_the_tab_on_screen(self):
+        events = []
+        with mock.patch.object(stage_browser, "inject_hud", side_effect=lambda space, hud, page: events.append(("hud", hud))), \
+                mock.patch.object(stage_browser, "switch_tab", side_effect=lambda tab: events.append(("switch", tab))):
+            stage_browser.run_action("oilstudio", "space", window(), {"id": "admin", "hud": {"title": "Admin"}}, 0,
+                {"action": "switchTab", "tab": "admin"}, False, mock.Mock())
+        self.assertEqual(events, [("hud", None), ("switch", "admin"), ("hud", {"title": "Admin"})])
+
+
+class HostAndTabValidationTests(unittest.TestCase):
+    def test_host_follows_from_the_playbook(self):
+        self.assertEqual(playbook.resolve_host({}), "stage-window")
+        self.assertEqual(playbook.resolve_host({"cdpURL": "http://127.0.0.1:9222"}), "cdp")
+        self.assertEqual(playbook.resolve_host({"host": "ego-browser"}), "browser")
+        self.assertEqual(playbook.resolve_host({"page": "user"}), "browser")
+        self.assertEqual(playbook.resolve_host({"host": "stage-window"}), "stage-window")
+
+    def test_real_browsers_get_the_snapshot_check_by_default(self):
+        self.assertFalse(playbook.preflight_enabled({}))
+        self.assertTrue(playbook.preflight_enabled({"cdpURL": "http://127.0.0.1:9222"}))
+        self.assertTrue(playbook.preflight_enabled({"host": "browser"}))
+        self.assertFalse(playbook.preflight_enabled({"host": "browser", "preflight": False}))
+        self.assertTrue(playbook.preflight_enabled({"preflightSeconds": 1}))
+        self.assertTrue(playbook.preflight_enabled({"preflight": True}))
+
+    def test_debugging_address_must_be_local_and_paired_with_the_cdp_host(self):
+        for url in ("http://127.0.0.1:9222", "http://localhost:9333/", "http://[::1]:9222"):
+            with self.subTest(url=url):
+                playbook.validate_playbook(make_book(browser={"cdpURL": url}))
+        for browser in ({"cdpURL": "http://192.168.1.2:9222"}, {"cdpURL": "https://127.0.0.1:9222"},
+                {"cdpURL": "http://127.0.0.1"}, {"cdpURL": "http://127.0.0.1:9222/json"}, {"host": "cdp"},
+                {"host": "stage-window", "cdpURL": "http://127.0.0.1:9222"}, {"host": "firefox"}):
+            with self.subTest(browser=browser), self.assertRaises(playbook.PlaybookError):
+                playbook.validate_playbook(make_book(browser=browser))
+
+    def test_tabs_need_a_real_browser_and_switches_need_a_declared_tab(self):
+        cdp = {"cdpURL": "http://127.0.0.1:9222", "tabs": [{"id": "admin", "url": "https://admin.example.com/"}]}
+        book = make_book(browser=cdp)
+        book["beats"][0]["actions"] += [{"action": "switchTab", "tab": "admin"}, {"action": "switchTab", "tab": "main"}]
+        playbook.validate_playbook(book)
+        unknown = json.loads(json.dumps(book)); unknown["beats"][0]["actions"].append({"action": "switchTab", "tab": "billing"})
+        stage_tabs = make_book(browser={"tabs": cdp["tabs"]})
+        stage_switch = make_book(); stage_switch["beats"][0]["actions"].append({"action": "switchTab", "tab": "main"})
+        for invalid in (unknown, stage_tabs, stage_switch,
+                make_book(browser={"cdpURL": "http://127.0.0.1:9222", "tabs": [{"id": "main", "url": "https://a.example/"}]}),
+                make_book(browser={"cdpURL": "http://127.0.0.1:9222", "tabs": [{"id": "a", "url": "https://a.example/"}, {"id": "a", "url": "https://b.example/"}]}),
+                make_book(browser={"cdpURL": "http://127.0.0.1:9222", "tabs": [{"id": "a", "url": "file:///etc/hosts"}]})):
+            with self.subTest(invalid=invalid.get("browser")), self.assertRaises(playbook.PlaybookError):
+                playbook.validate_playbook(invalid)
+
+    def test_wheel_needs_a_point_and_a_nonzero_delta(self):
+        for action, valid in (({"action": "wheel", "selector": "iframe", "deltaY": 600}, True),
+                ({"action": "wheel", "fraction": {"u": 0.5, "v": 0.5}, "deltaX": -200, "durationMs": 0}, True),
+                ({"action": "wheel", "selector": "iframe"}, False),
+                ({"action": "wheel", "selector": "iframe", "deltaY": 0, "deltaX": 0}, False),
+                ({"action": "wheel", "deltaY": 300}, False),
+                ({"action": "wheel", "selector": "iframe", "deltaY": True}, False)):
+            book = make_book(); book["beats"][0]["actions"].append(action)
+            with self.subTest(action=action):
+                if valid:
+                    playbook.validate_playbook(book)
+                else:
+                    with self.assertRaises(playbook.PlaybookError):
+                        playbook.validate_playbook(book)
+
+    def test_a_planned_take_clears_its_whole_span_by_default(self):
+        base = {"project": "/tmp/v.oilstudio", "atOutputMs": 1000.4}
+        self.assertEqual(playbook.record_start_arguments("window-1", None), ["record", "start", "--source", "window-1"])
+        self.assertNotIn("--replace-until-output-ms", playbook.record_start_arguments("w", {**base, "durationMs": 5000}))
+        self.assertNotIn("--replace-until-output-ms", playbook.record_start_arguments("w", {**base, "plan": "/tmp/p.json"}))
+        planned = playbook.record_start_arguments("w", {**base, "plan": "/tmp/p.json", "durationMs": 5000})
+        self.assertEqual(planned[planned.index("--plan") + 1], "/tmp/p.json")
+        self.assertEqual(planned[planned.index("--replace-until-output-ms") + 1], "6000")
+        explicit = playbook.record_start_arguments("w", {**base, "plan": "/tmp/p.json", "durationMs": 5000, "replaceUntilOutputMs": 9000})
+        self.assertEqual(explicit[explicit.index("--replace-until-output-ms") + 1], "9000")
+
+    def test_attach_plan_and_replacement_range(self):
+        playbook.validate_playbook(attach_book(attach={"project": "/tmp/v.oilstudio", "atOutputMs": 1000,
+            "plan": "/tmp/plan.json", "replaceUntilOutputMs": 5000}))
+        for attach in ({"project": "/tmp/v.oilstudio", "atOutputMs": 1000, "plan": ""},
+                {"project": "/tmp/v.oilstudio", "atOutputMs": 1000, "replaceUntilOutputMs": 1000}):
+            with self.subTest(attach=attach), self.assertRaises(playbook.PlaybookError):
+                playbook.validate_playbook(attach_book(attach=attach))
+
+
+class SnapshotPreflightTests(unittest.TestCase):
+    def run_main(self, snapshot_text, browser=None):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "playbook.json"
+            path.write_text(json.dumps(make_book(browser=browser or {"cdpURL": "http://127.0.0.1:9222"})), encoding="utf-8")
+            calls = []
+            def run_command(cli, *arguments, **options):
+                calls.append(arguments)
+                if arguments == ("record", "sources"):
+                    return {"sources": [window(title="Example — Documentation")]}
+                if arguments[:2] == ("record", "screenshot"):
+                    return {"path": arguments[-1], "text": snapshot_text}
+                if arguments == ("record", "status"):
+                    return {"state": "recording", "durationSourceMs": 100 * len(calls)}
+                if arguments == ("record", "stop"):
+                    return {"stoppedBy": "agent", "path": "/tmp/playbook.oilstudio", "durationMs": 100}
+                return {"autoApplied": True}
+            state = {"pageUrl": "https://example.com/", "pageTitle": "Example — Documentation", "pageLabel": "p1",
+                "activeTabMatchesPage": True, "metrics": {"innerWidth": 1440, "innerHeight": 800, "outerWidth": 1440, "outerHeight": 900}}
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path)]), \
+                    mock.patch.object(playbook, "run_cli", side_effect=run_command), \
+                    mock.patch.object(playbook.shutil, "which", return_value="/tool"), \
+                    mock.patch.object(playbook.StageWindowHost, "start") as stage, \
+                    mock.patch.object(playbook, "browser_call", side_effect=lambda space, body, **k: "https://example.com/" if body == "return await page.url();" else state), \
+                    mock.patch.object(playbook, "inject_hud"), mock.patch.object(playbook.time, "sleep"), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                result = playbook.main()
+            self.assertEqual(stage.called, playbook.resolve_host(browser or {"cdpURL": "x"}) == "stage-window")
+            return result, calls, (stdout.getvalue() or stderr.getvalue())
+
+    def test_automation_overlay_in_the_window_blocks_recording(self):
+        overlay = [{"text": "Oil Book", "x": 0.4, "y": 0.9, "width": 0.1, "height": 0.02},
+            {"text": "Agent 正在控制", "x": 0.4, "y": 0.93, "width": 0.1, "height": 0.02},
+            {"text": "终止任务", "x": 0.55, "y": 0.93, "width": 0.05, "height": 0.02}]
+        result, calls, output = self.run_main(overlay)
+        self.assertEqual(result, 1)
+        snapshot = next(call for call in calls if call[:2] == ("record", "screenshot"))
+        self.assertEqual(snapshot[2:5], ("--source", "window-1", "--text"))
+        self.assertFalse(any(call[:2] == ("record", "start") for call in calls), "no take, no project for the check")
+        report = json.loads(output)
+        self.assertEqual(report["preflight"]["ocr"]["forbidden"], ["Agent 正在控制", "终止任务"])
+
+    def test_clean_window_records_and_browser_chrome_text_is_ignored(self):
+        # Browser chrome above the viewport is cropped from the video, so its text doesn't block recording.
+        text = [{"text": "Translate this page", "x": 0.7, "y": 0.02, "width": 0.2, "height": 0.03},
+            {"text": "Example content", "x": 0.2, "y": 0.5, "width": 0.3, "height": 0.03}]
+        result, calls, output = self.run_main(text)
+        self.assertEqual(result, 0, output)
+        self.assertLess(calls.index(next(call for call in calls if call[:2] == ("record", "screenshot"))),
+            calls.index(next(call for call in calls if call[:2] == ("record", "start"))))
+
+    def test_the_stage_skips_the_check_unless_asked(self):
+        result, calls, output = self.run_main([], browser={"host": "stage-window"})
+        self.assertEqual(result, 0, output)
+        self.assertFalse(any(call[:2] == ("record", "screenshot") for call in calls))
+
+    def test_forbidden_texts_ignore_case_and_spacing_and_can_be_replaced(self):
+        self.assertEqual(playbook.preflight_forbidden("agent正在控制  Stop", playbook.DEFAULT_PREFLIGHT_FORBID), ["Agent 正在控制"])
+        self.assertEqual(playbook.preflight_forbidden("Agent 正在控制", []), [])
+        playbook.validate_playbook(make_book(browser={"cdpURL": "http://127.0.0.1:9222", "preflightForbid": []}))
+        with self.assertRaises(playbook.PlaybookError):
+            playbook.validate_playbook(make_book(browser={"cdpURL": "http://127.0.0.1:9222", "preflight": False,
+                "preflightForbid": ["x"]}))
 
 
 class PlaybookRobustnessTests(unittest.TestCase):
@@ -411,15 +603,14 @@ class PlaybookRobustnessTests(unittest.TestCase):
                     self.assertEqual(playbook.main(), 1)
                 start.assert_not_called()
 
-    def test_missing_ego_browser_defaults_to_stage_window(self):
+    def test_unspecified_host_uses_the_stage_even_when_an_agent_browser_is_installed(self):
+        # An agent browser draws its control bar while it drives the page, so it is never picked implicitly.
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "book.json"; path.write_text(json.dumps(make_book()))
             state = {"pageUrl": "https://example.com/", "pageTitle": "Example",
                 "pageLabel": "stage-window", "activeTabMatchesPage": True}
-            def which(cmd):
-                return None if cmd == "ego-browser" else "/tool"
             with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path)]), \
-                    mock.patch.object(playbook.shutil, "which", side_effect=which), \
+                    mock.patch.object(playbook.shutil, "which", return_value="/tool"), \
                     mock.patch.object(playbook.StageWindowHost, "start", return_value=mock.Mock()) as start, \
                     mock.patch.object(playbook, "browser_call", return_value=state), \
                     mock.patch.object(playbook, "run_cli", return_value={"sources": []}), \
@@ -487,11 +678,12 @@ class LocalizationTests(unittest.TestCase):
                         self.assertIsNone(CJK.search(rendered))
 
     def test_message_keys_exist_and_chinese_only_lives_in_the_catalog(self):
-        for path in (SCRIPTS / "record_playbook.py", SCRIPTS / "record_playbook_browser.py"):
+        for path in (SCRIPTS / "record_playbook.py", SCRIPTS / "record_playbook_browser.py", SCRIPTS / "record_playbook_bridge.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             catalog_lines = set()
             for node in ast.walk(tree):
-                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "MESSAGES":
+                # DEFAULT_PREFLIGHT_FORBID is OCR match data (texts other software shows), not interface text.
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in ("MESSAGES", "DEFAULT_PREFLIGHT_FORBID"):
                     catalog_lines.update(range(node.lineno, node.end_lineno + 1))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str) and CJK.search(node.value):
@@ -566,17 +758,6 @@ class PreflightAndScratchTests(unittest.TestCase):
         with self.assertRaises(playbook.PlaybookError):
             playbook.validate_playbook(make_book(browser={"preflightSeconds": 1, "preflightContains": [""]}))
 
-    def test_preflight_frame_time_stays_inside_the_actual_take(self):
-        cases = ((0, 0), (0.0009, 0), (0.001, 0), (0.01, 9), (0.1, 99), (0.499, 498),
-            (0.5, 499), (0.501, 500), (1, 500), (10, 500))
-        for seconds, expected in cases:
-            with self.subTest(seconds=seconds):
-                frame_ms = playbook.preflight_frame_source_ms(seconds)
-                self.assertEqual(frame_ms, expected)
-                self.assertGreaterEqual(frame_ms, 0)
-                if seconds >= 0.001:
-                    self.assertLess(frame_ms, int(seconds * 1000))
-
     def test_scratch_directories_are_unique_under_the_configured_parent(self):
         with tempfile.TemporaryDirectory() as directory:
             first = playbook.make_scratch_directory(directory)
@@ -601,17 +782,305 @@ class StageClientTests(unittest.TestCase):
         self.assertEqual(headers["content-type"], "application/json")
         self.assertNotIn("origin", headers)
 
-    def test_node_client_gets_the_token_from_its_environment(self):
-        completed = subprocess.CompletedProcess(["node"], 0, stdout="true\n", stderr="")
-        with mock.patch.object(stage_browser, "_STAGE_BRIDGE_URL", "http://127.0.0.1:43210"), \
-                mock.patch.object(stage_browser, "_STAGE_BRIDGE_TOKEN", "test-session-token"), \
-                mock.patch.object(stage_browser.subprocess, "run", return_value=completed) as run:
-            self.assertTrue(stage_browser.browser_call(None, "return true;"))
-        environment = run.call_args.kwargs["env"]
-        source = run.call_args.args[0][2]
-        self.assertEqual(environment["OILSTUDIO_PLAYBOOK_STAGE_TOKEN"], "test-session-token")
-        self.assertNotIn("test-session-token", source)
-        self.assertIn("process.env.OILSTUDIO_PLAYBOOK_STAGE_TOKEN", source)
+class FakeStageHandler(BaseHTTPRequestHandler):
+    """Answers the stage host's control API so the real Node bridge can be exercised without WebKit."""
+    authorizations: list[str] = []
+
+    def reply(self, result):
+        body = json.dumps({"ok": True, "result": result}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        type(self).authorizations.append(self.headers.get("Authorization", ""))
+        self.reply({"url": "https://example.com/", "title": "Fake stage", "readyState": "complete"})
+
+    def do_POST(self):
+        type(self).authorizations.append(self.headers.get("Authorization", ""))
+        payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.reply({"echo": payload.get("argument")} if self.path == "/evaluate" else {})
+
+    def log_message(self, format, *args):
+        pass
+
+
+@unittest.skipUnless(shutil.which("node"), "the bridge test requires node")
+class BridgeProtocolTests(unittest.TestCase):
+    def setUp(self):
+        FakeStageHandler.authorizations = []
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), FakeStageHandler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.scratch = tempfile.TemporaryDirectory(prefix="oil-studio-bridge-test-")
+        self.bridge = bridge_module.BrowserBridge.start("stage", Path(self.scratch.name),
+            stage_url=f"http://127.0.0.1:{self.server.server_port}", stage_token="stage-session-token")
+        bridge_module.activate(self.bridge)
+
+    def tearDown(self):
+        self.bridge.close()
+        self.server.shutdown()
+        self.server.server_close()
+        self.scratch.cleanup()
+
+    def test_one_process_answers_every_step_without_restarting(self):
+        started = time.monotonic()
+        for _ in range(20):
+            self.assertEqual(stage_browser.browser_call(None, "return await page.title();"), "Fake stage")
+        # A cold start per step took about half a second; twenty steps now fit well inside one.
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertEqual(self.bridge.process.poll(), None)
+        self.assertEqual(self.bridge.call("return await page.evaluate(x => x, 41);"), {"echo": 41})
+
+    def test_tokens_stay_out_of_process_arguments(self):
+        self.bridge.call("return await page.url();")
+        self.assertTrue(FakeStageHandler.authorizations)
+        self.assertTrue(all(value == "Bearer stage-session-token" for value in FakeStageHandler.authorizations))
+        arguments = " ".join(map(str, self.bridge.process.args))
+        self.assertNotIn("stage-session-token", arguments)
+        self.assertEqual(self.bridge.process.args, ["node", "--input-type=module"])
+
+    def test_page_errors_are_reported_and_the_bridge_keeps_working(self):
+        with self.assertRaisesRegex(ValueError, "boom"):
+            self.bridge.call("throw new Error('boom');")
+        with self.assertRaises(ValueError):
+            self.bridge.switch_tab("missing")
+        with self.assertRaises(ValueError):
+            self.bridge.open_tab("admin", "https://example.com/admin")
+        self.assertEqual(self.bridge.call("return 1 + 1;"), 2)
+
+    def test_a_slow_step_times_out_and_its_late_reply_is_skipped(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.bridge.call("await new Promise(r => setTimeout(r, 1500)); return 'late';", timeout=0.3)
+        self.assertEqual(self.bridge.call("return 'next';", timeout=10), "next")
+
+    def test_the_bridge_exits_when_the_script_disappears(self):
+        # A killed playbook never sends close; the bridge must not linger holding browser connections.
+        process = self.bridge.process
+        self.bridge.connection.close()
+        process.wait(timeout=5)
+        self.assertIsNotNone(process.poll())
+
+    def test_close_ends_the_process_and_detaches(self):
+        process = self.bridge.process
+        self.bridge.close()
+        self.assertIsNotNone(process.poll())
+        with self.assertRaises(ValueError):
+            stage_browser.browser_call(None, "return 1;")
+
+    def test_a_ready_line_in_the_same_packet_as_the_hello_is_kept(self):
+        listener = socket.create_server(("127.0.0.1", 0))
+        process = mock.Mock(poll=mock.Mock(return_value=None))
+        client = socket.create_connection(listener.getsockname())
+        client.sendall(b'{"hello": "token"}\n{"ready": true}\n')
+        accepted, pending = bridge_module.BrowserBridge._accept(listener, process, Path(self.scratch.name) / "none.log", "token")
+        try:
+            bridge = bridge_module.BrowserBridge("stage", process, accepted, Path(self.scratch.name) / "none.log")
+            bridge._buffer = pending
+            self.assertEqual(bridge._read(time.monotonic() + 1, 1), {"ready": True})
+        finally:
+            for item in (accepted, client, listener):
+                item.close()
+
+    def test_only_the_bridge_with_the_token_is_accepted(self):
+        listener = socket.create_server(("127.0.0.1", 0))
+        process = mock.Mock(poll=mock.Mock(return_value=None))
+        impostor = socket.create_connection(listener.getsockname())
+        impostor.sendall(b'{"hello": "guess"}\n')
+        genuine = socket.create_connection(listener.getsockname())
+        genuine.sendall(b'{"hello": "real-token"}\n')
+        accepted, _ = bridge_module.BrowserBridge._accept(listener, process, Path(self.scratch.name) / "none.log", "real-token")
+        try:
+            self.assertEqual(accepted.getpeername(), genuine.getsockname())
+        finally:
+            for item in (accepted, impostor, genuine, listener):
+                item.close()
+
+
+def attach_book(at_ms=None, attach=None):
+    book = make_book(browser={"host": "stage-window"})
+    book["attach"] = {"project": "/tmp/voice-over.oilstudio", "atOutputMs": 138000} if attach is None else attach
+    click = {"action": "click", "fraction": {"u": 0.5, "v": 0.5}}
+    if at_ms is not None:
+        click["atMs"] = at_ms
+    book["beats"][0]["actions"].append(click)
+    book["beats"][0]["zoom"] = {"level": 2, "mode": "auto"}
+    return book
+
+
+class AttachModeTests(unittest.TestCase):
+    def test_validation_accepts_attach_with_timed_actions(self):
+        playbook.validate_playbook(attach_book(at_ms=3200,
+            attach={"project": "/tmp/voice-over.oilstudio", "atOutputMs": 0, "durationMs": 9000}))
+
+    def test_validation_rejects_malformed_attach(self):
+        for attach in ({"project": "/tmp/voice-over.oilstudio"},
+                {"project": "/tmp/clip.mp4", "atOutputMs": 10},
+                {"project": "/tmp/voice-over.oilstudio", "atOutputMs": -1},
+                {"project": "/tmp/voice-over.oilstudio", "atOutputMs": True},
+                {"project": "/tmp/voice-over.oilstudio", "atOutputMs": 0, "durationMs": 0}):
+            with self.subTest(attach=attach), self.assertRaises(playbook.PlaybookError):
+                playbook.validate_playbook(attach_book(attach=attach))
+
+    def test_timed_actions_need_attach_and_cannot_time_the_opening_page(self):
+        book = attach_book(at_ms=100)
+        del book["attach"]
+        with self.assertRaises(playbook.PlaybookError):
+            playbook.validate_playbook(book)
+        book = attach_book()
+        book["beats"][0]["actions"][0]["atMs"] = 0
+        with self.assertRaises(playbook.PlaybookError):
+            playbook.validate_playbook(book)
+
+    def simulated_recorder(self, launch_ms=120.0, reply_ms=30.0):
+        """A take that began at local time 0; each CLI call reaches the App `launch_ms` after it starts."""
+        local = {"ms": 0.0}
+
+        def status():
+            reading = local["ms"] + launch_ms
+            local["ms"] += launch_ms + reply_ms
+            return {"durationSourceMs": reading}
+
+        def sleep(seconds):
+            self.assertGreaterEqual(seconds, 0)
+            local["ms"] += seconds * 1000
+        return local, status, sleep
+
+    def test_wait_ends_so_the_next_command_reaches_the_app_on_time(self):
+        local, status, sleep = self.simulated_recorder()
+        with mock.patch.object(playbook.time, "sleep", side_effect=sleep) as sleeps:
+            playbook.wait_until_recorded_ms(7000, status, now=lambda: local["ms"] / 1000)
+        # The click command started now arrives one launch delay later.
+        self.assertAlmostEqual(local["ms"] + 120, 7000, delta=40)
+        self.assertGreater(sleeps.call_count, 1, "a distant target re-reads the recorder clock")
+        self.assertTrue(all(call.args[0] <= 5 for call in sleeps.call_args_list))
+
+    def test_wait_returns_at_once_when_the_moment_has_passed(self):
+        local, status, sleep = self.simulated_recorder()
+        local["ms"] = 9000
+        with mock.patch.object(playbook.time, "sleep", side_effect=sleep) as sleeps:
+            result = playbook.wait_until_recorded_ms(3000, status, now=lambda: local["ms"] / 1000)
+        self.assertEqual(result["durationSourceMs"], 9120)
+        sleeps.assert_not_called()
+
+    def test_a_due_pointer_action_declares_without_extra_recorder_checks(self):
+        cli_calls = []
+
+        def run_cli(cli, *arguments):
+            cli_calls.append(arguments)
+            return {"durationSourceMs": 2998}
+        point = {"u": 0.25, "v": 0.5, "viewX": 480, "viewY": 540}
+        checks = mock.Mock()
+        with mock.patch.object(stage_browser, "browser_call") as browser, \
+                mock.patch.object(stage_browser, "action_point") as measure:
+            declared = stage_browser.run_action("cli", None, {}, {"id": "b"}, 0,
+                {"action": "click", "fraction": {"u": 0.25, "v": 0.5}, "atMs": 3000}, False, run_cli,
+                ensure_recording_active=checks, point=point)
+        self.assertEqual(declared, {"durationSourceMs": 2998})
+        self.assertEqual(cli_calls, [("record", "click", "--at-fraction", "0.250000,0.500000", "--id", "play-b-1")])
+        checks.assert_not_called(); measure.assert_not_called()
+        self.assertIn("page.mouse.click(480, 540", browser.call_args.args[1])
+
+    def test_main_records_into_the_voice_over_and_offsets_zooms_to_the_clip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "playbook.json"
+            path.write_text(json.dumps(attach_book(at_ms=500,
+                attach={"project": "/tmp/voice-over.oilstudio", "atOutputMs": 138000.4, "durationMs": 900})),
+                encoding="utf-8")
+            book = json.loads(path.read_text(encoding="utf-8"))
+            book["attach"].update({"plan": "/tmp/draft-plan.json", "replaceUntilOutputMs": 141000})
+            path.write_text(json.dumps(book), encoding="utf-8")
+            calls, plans = [], []
+            clock = 0
+
+            def run_command(cli, *arguments, **options):
+                nonlocal clock
+                calls.append(arguments)
+                if arguments == ("record", "sources"):
+                    return {"sources": [window(title="Example — Documentation")]}
+                if arguments == ("record", "status"):
+                    clock += 100
+                    return {"state": "recording", "durationSourceMs": clock}
+                if arguments == ("record", "stop"):
+                    return {"stoppedBy": "agent", "path": "/tmp/voice-over.oilstudio", "durationMs": clock,
+                        "screenClip": {"id": "clip-1", "sessionIndex": 3, "sourceStartMs": 500000,
+                            "sourceEndMs": 500000 + clock, "outputStartMs": 138000, "outputEndMs": 138000 + clock}}
+                if arguments[0] == "context":
+                    Path(arguments[arguments.index("--out") + 1]).write_text(json.dumps(
+                        {"projectFingerprint": "p", "contextFingerprint": "c", "zooms": []}), encoding="utf-8")
+                    return {"ok": True}
+                if arguments[:2] in (("plan", "validate"), ("plan", "submit")):
+                    plans.append(json.loads(Path(arguments[2]).read_text(encoding="utf-8")))
+                    return {"autoApplied": True}
+                if arguments[:2] == ("settings", "apply"):
+                    settings.append(json.loads(Path(arguments[3]).read_text(encoding="utf-8")))
+                    return {"autoApplied": True}
+                if arguments[:2] == ("record", "start"):
+                    return {"state": "recording", "plan": {"stale": True, "atOutputMs": 151000}}
+                if arguments[:2] == ("record", "click"):
+                    return {"autoApplied": True}
+                raise AssertionError(f"unexpected CLI command: {arguments}")
+
+            settings = []
+            browser_state = {"pageUrl": "https://example.com/", "pageTitle": "Example — Documentation",
+                "pageLabel": "stage-window", "activeTabMatchesPage": True,
+                "metrics": {"innerWidth": 1920, "innerHeight": 1080, "outerWidth": 1920, "outerHeight": 1080}}
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path)]), \
+                    mock.patch.object(playbook, "run_cli", side_effect=run_command), \
+                    mock.patch.object(playbook, "run_action",
+                        side_effect=lambda *args, **kwargs: calls.append(("action", args[5].get("action"), kwargs.get("point")))
+                            or {"durationSourceMs": 497}), \
+                    mock.patch.object(playbook, "action_point", return_value={"u": 0.5, "v": 0.5, "viewX": 960, "viewY": 540}), \
+                    mock.patch.object(playbook, "wait_until_recorded_ms",
+                        side_effect=lambda target, status: calls.append(("wait", target)) or status()), \
+                    mock.patch.object(playbook.shutil, "which", return_value="/fake/tool"), \
+                    mock.patch.object(playbook.StageWindowHost, "start", return_value=mock.Mock()), \
+                    mock.patch.object(playbook, "browser_call", return_value=browser_state), \
+                    mock.patch.object(stage_browser, "browser_call", return_value=browser_state), \
+                    mock.patch.object(playbook, "inject_hud"), \
+                    mock.patch.object(playbook.time, "sleep"), mock.patch.object(stage_browser.time, "sleep"), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                result = playbook.main()
+
+        self.assertEqual(result, 0, stderr.getvalue())
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(report["screenClip"]["id"], "clip-1")
+        start = next(call for call in calls if call[:2] == ("record", "start"))
+        self.assertEqual(start[start.index("--into") + 1], "/tmp/voice-over.oilstudio")
+        self.assertEqual(start[start.index("--at-output-ms") + 1], "138000")
+        self.assertEqual(start[start.index("--plan") + 1], "/tmp/draft-plan.json")
+        self.assertEqual(start[start.index("--replace-until-output-ms") + 1], "141000")
+        self.assertEqual(report["planProjection"], {"stale": True, "atOutputMs": 151000})
+        self.assertFalse(any(call[0] in ("idle", "subtitles", "chapters", "export") for call in calls))
+        click_index = next(i for i, call in enumerate(calls) if call[:2] == ("action", "click"))
+        last_wait = max(i for i, call in enumerate(calls[:click_index]) if call[0] == "wait")
+        self.assertEqual(calls[last_wait], ("wait", 500))
+        self.assertTrue(all(call == ("record", "status") for call in calls[last_wait + 1:click_index]),
+            "only the wait's own clock read separates it from the timed click")
+        self.assertIsNotNone(calls[click_index][2], "the click target is measured before the wait")
+        self.assertIn(("wait", 900), calls[:calls.index(("record", "stop"))])
+        self.assertEqual(report["timedActions"], [{"beat": "intro", "actionIndex": 1, "atMs": 500, "declaredMs": 497}])
+        zoom = plans[-1]["zooms"][0]
+        self.assertGreaterEqual(zoom["sourceStartMs"], 500000)
+        self.assertGreater(zoom["sourceEndMs"], zoom["sourceStartMs"])
+        self.assertTrue(settings)
+        self.assertTrue(all("transitions" not in item["settings"] for item in settings))
+
+    def test_attach_refuses_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "playbook.json"
+            path.write_text(json.dumps(attach_book()), encoding="utf-8")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(sys, "argv", ["record_playbook.py", "--playbook", str(path),
+                    "--export", str(Path(directory) / "out.mp4")]), \
+                    mock.patch.object(playbook, "run_cli") as cli, \
+                    mock.patch.object(playbook.shutil, "which", return_value="/fake/tool"), \
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                result = playbook.main()
+        self.assertEqual(result, 1)
+        cli.assert_not_called()
 
 
 class StagePageHandler(BaseHTTPRequestHandler):
@@ -641,7 +1110,12 @@ class StageHTTPIntegrationTests(unittest.TestCase):
         cls.scratch = tempfile.TemporaryDirectory(prefix="oil-studio-stage-test-")
         try:
             cls.host = stage_browser.StageWindowHost.start(cls.url, Path(cls.scratch.name) / "stage")
+            cls.bridge = bridge_module.BrowserBridge.start("stage", Path(cls.scratch.name) / "bridge",
+                stage_url=cls.host.base_url, stage_token=cls.host.token)
+            bridge_module.activate(cls.bridge)
         except Exception:
+            if hasattr(cls, "host"):
+                cls.host.close()
             cls.server.shutdown()
             cls.server.server_close()
             cls.server_thread.join()
@@ -650,6 +1124,8 @@ class StageHTTPIntegrationTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if hasattr(cls, "bridge"):
+            cls.bridge.close()
         if hasattr(cls, "host"):
             cls.host.close()
         cls.server.shutdown()
@@ -761,6 +1237,19 @@ class StageHTTPIntegrationTests(unittest.TestCase):
         stage_browser.selector_point(None, "#button", source)
         self.assertEqual(stage_browser.browser_call(None, 'return await page.evaluate(() => document.querySelector("#scroller").scrollTop);'), scroll_top)
 
+    def test_wheel_scrolls_the_container_under_the_pointer(self):
+        stage_browser.browser_call(None, '''return await page.evaluate(() => {
+  document.body.innerHTML = `<div id="pane" style="position:absolute;left:100px;top:100px;width:400px;height:300px;overflow:auto">
+    <div style="height:2000px">tall</div></div>`;
+  return true;
+});''')
+        source = {"width": 1920, "height": 1080}
+        stage_browser.run_action("unused", None, source, {"id": "pane"}, 0,
+            {"action": "wheel", "fraction": {"u": 300 / 1920, "v": 250 / 1080}, "deltaY": 600, "durationMs": 200},
+            False, lambda *a, **k: {})
+        top = stage_browser.browser_call(None, 'return await page.evaluate(() => document.querySelector("#pane").scrollTop);')
+        self.assertGreater(top, 0)
+
     def test_async_evaluation_timeout_reports_failure(self):
         with self.assertRaisesRegex(ValueError, "timeout"):
             self.host._request("POST", "/evaluate", {"script": "return await new Promise(resolve => setTimeout(() => resolve(1), 12000));", "mode": "script"})
@@ -784,6 +1273,101 @@ class StageHTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         payload = json.loads(response.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(payload["result"], 42)
+
+
+class PageServerHandler(BaseHTTPRequestHandler):
+    pages: dict[str, str] = {}
+
+    def do_GET(self):
+        body = type(self).pages.get(self.path.split("?")[0], "<title>Missing</title>").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+
+CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+@unittest.skipUnless(os.environ.get("OILSTUDIO_RUN_CDP_TESTS") == "1" and Path(CHROME).exists() and shutil.which("node"),
+    "set OILSTUDIO_RUN_CDP_TESTS=1 (needs Google Chrome and node) to drive a real browser over the debugging port")
+class CDPHostIntegrationTests(unittest.TestCase):
+    """A throwaway headless Chrome profile; nothing of the user's browser is touched."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.servers = []
+        for _ in range(2):  # two ports, two origins: the frame is cross-origin to the page
+            server = ThreadingHTTPServer(("127.0.0.1", 0), PageServerHandler)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            cls.servers.append(server)
+        page_origin, frame_origin = (f"http://127.0.0.1:{server.server_port}" for server in cls.servers)
+        PageServerHandler.pages = {
+            "/demo": f"""<!doctype html><title>CDP demo</title><body style="margin:0">
+<button id="go" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Go</button>
+<iframe id="frame" src="{frame_origin}/frame" style="position:absolute;left:40px;top:120px;width:500px;height:300px;border:0"></iframe>
+<script>window.clicks = []; window.frameScroll = 0;
+document.querySelector('#go').addEventListener('click', e => window.clicks.push(e.isTrusted));
+addEventListener('message', e => {{ window.frameScroll = e.data; }});</script></body>""",
+            "/frame": """<!doctype html><title>Frame</title><body style="margin:0"><div style="height:3000px">tall</div>
+<script>addEventListener('scroll', () => parent.postMessage(scrollY, '*'));</script></body>""",
+            "/admin": "<!doctype html><title>Admin tab</title><body>admin</body>",
+        }
+        cls.page_url, cls.admin_url = f"{page_origin}/demo", f"{page_origin}/admin"
+        cls.scratch = tempfile.TemporaryDirectory(prefix="oil-studio-cdp-test-")
+        profile = Path(cls.scratch.name) / "profile"
+        cls.chrome = subprocess.Popen([CHROME, "--headless=new", "--remote-debugging-port=0", f"--user-data-dir={profile}",
+            "--no-first-run", "--no-default-browser-check", "--window-size=1280,800", "about:blank"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        port_file = profile / "DevToolsActivePort"
+        deadline = time.monotonic() + 30
+        while not port_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        port = port_file.read_text().split()[0]
+        cls.bridge = bridge_module.BrowserBridge.start("cdp", Path(cls.scratch.name) / "bridge",
+            cdp_url=f"http://127.0.0.1:{port}", first_url=cls.page_url)
+        bridge_module.activate(cls.bridge)
+        stage_browser.browser_call(None, "await page.waitForLoadState(); return true;")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.bridge.close()
+        cls.chrome.terminate()
+        cls.chrome.wait(timeout=10)
+        for server in cls.servers:
+            server.shutdown()
+            server.server_close()
+        cls.scratch.cleanup()
+
+    def test_opening_page_title_and_trusted_click(self):
+        self.assertEqual(stage_browser.browser_call(None, "return await page.title();"), "CDP demo")
+        stage_browser.browser_call(None, 'await page.click("#go"); return true;')
+        self.assertEqual(stage_browser.browser_call(None, "return await page.evaluate(() => window.clicks);"), [True])
+
+    def test_wheel_scrolls_a_cross_origin_frame(self):
+        point = stage_browser.selector_point(None, "#frame", {"width": 1280, "height": 800})
+        stage_browser.run_action("unused", None, {"width": 1280, "height": 800}, {"id": "frame"}, 0,
+            {"action": "wheel", "fraction": {"u": point["u"], "v": point["v"]}, "deltaY": 900, "durationMs": 300},
+            False, lambda *a, **k: {})
+        deadline = time.monotonic() + 5
+        scrolled = 0
+        while time.monotonic() < deadline and not scrolled:
+            scrolled = stage_browser.browser_call(None, "return await page.evaluate(() => window.frameScroll);")
+            time.sleep(0.1)
+        self.assertGreater(scrolled, 0)
+
+    def test_prepared_tabs_switch_without_reloading(self):
+        self.bridge.open_tab("admin", self.admin_url)
+        self.bridge.switch_tab("admin")
+        self.assertEqual(stage_browser.browser_call(None, "return await page.title();"), "Admin tab")
+        self.bridge.switch_tab("main")
+        self.assertEqual(stage_browser.browser_call(None, "return await page.title();"), "CDP demo")
+        tabs = stage_browser.browser_call(None, "return await task.tabs();")
+        self.assertEqual([tab["title"] for tab in tabs if tab["active"]], ["CDP demo"])
 
 
 if __name__ == "__main__":

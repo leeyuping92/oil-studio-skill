@@ -30,14 +30,21 @@ MESSAGES: dict[str, dict[str, str]] = {
     "sourceRequired": {"zh-Hans": "source 需要 sourceId，或 app/title 匹配条件。", "en": "source requires sourceId or an app/title matching condition."},
     "exactTitleBoolean": {"zh-Hans": "source.exactTitle 必须是布尔值。", "en": "source.exactTitle must be a Boolean."},
     "browserObject": {"zh-Hans": "browser 必须是对象。", "en": "browser must be an object."},
-    "browserHost": {"zh-Hans": "browser.host 只支持 browser、ego-browser 或 stage-window。", "en": "browser.host supports browser, ego-browser, or stage-window."},
-    "stageSourceIdConflict": {"zh-Hans": "browser.host 为 stage-window 时不能指定 source.sourceId；请改用 source.title 或 app 匹配新舞台窗口。", "en": "source.sourceId can’t be used when browser.host is stage-window. Use source.title or app to match the new stage window instead."},
+    "browserHost": {"zh-Hans": "browser.host 只支持 stage-window、cdp、browser 或 ego-browser。", "en": "browser.host supports stage-window, cdp, browser, or ego-browser."},
+    "browserCdpURL": {"zh-Hans": "browser.cdpURL 必须是本机调试地址，例如 http://127.0.0.1:9222。", "en": "browser.cdpURL must be a local debugging address, such as http://127.0.0.1:9222."},
+    "browserCdpURLHost": {"zh-Hans": "cdp 宿主需要 browser.cdpURL；browser.cdpURL 也只能和 cdp 宿主一起使用。", "en": "The cdp host requires browser.cdpURL, and browser.cdpURL works only with the cdp host."},
+    "browserTabs": {"zh-Hans": "browser.tabs 必须是数组，每项包含唯一的 id（不能是 main）和 http(s) url。", "en": "browser.tabs must be an array whose items each have a unique id (not main) and an HTTP(S) url."},
+    "tabsNeedBrowser": {"zh-Hans": "独立舞台只有一个页面；预先打开或切换标签页需要 cdp 或 browser 宿主。", "en": "The isolated stage has a single page. Opening or switching tabs requires the cdp or browser host."},
+    "preflightBoolean": {"zh-Hans": "browser.preflight 必须是布尔值。", "en": "browser.preflight must be a Boolean."},
+    "preflightForbidArray": {"zh-Hans": "browser.preflightForbid 必须是字符串数组，且各项非空。", "en": "browser.preflightForbid must be an array of non-empty strings."},
+    "preflightForbiddenText": {"zh-Hans": "开录前的窗口快照里出现了不该录进画面的文字：{texts}。请先关掉这些浮层或提示（例如浏览器的自动化控制条、翻译弹窗）。浏览器被自动化接管时会一直显示控制条，请改用 cdp 宿主或独立舞台。已阻止录制。", "en": "The window snapshot before recording shows text that shouldn’t appear in the video: {texts}. Close these overlays or prompts first, such as a browser automation bar or a translation prompt. A browser under automation control keeps showing its control bar, so use the cdp host or the isolated stage instead. Recording didn’t start."},
+    "stageSourceIdConflict": {"zh-Hans": "独立舞台（未指定 browser.host 与 browser.cdpURL 时的默认宿主）每次都是新窗口，不能指定 source.sourceId；请改用 source.title 或 app，或设置 browser.cdpURL 连接已打开的浏览器。", "en": "The isolated stage, the default when browser.host and browser.cdpURL aren’t set, opens a new window each time, so source.sourceId can’t be used. Use source.title or app instead, or set browser.cdpURL to connect to a browser that’s already open."},
     "browserSpaceType": {"zh-Hans": "browser.space 或 browser.spaceId 必须是字符串或整数。", "en": "browser.space or browser.spaceId must be a string or integer."},
     "browserPageFormat": {"zh-Hans": "browser.page 必须是 user 或已存在的 Page 标签（例如 p1）。", "en": "browser.page must be user or an existing page label, such as p1."},
     "cropBrowserChromeBoolean": {"zh-Hans": "browser.cropBrowserChrome 必须是布尔值。", "en": "browser.cropBrowserChrome must be a Boolean."},
     "preflightSecondsRange": {"zh-Hans": "browser.preflightSeconds 必须在 0–10 秒。", "en": "browser.preflightSeconds must be between 0 and 10 seconds."},
     "preflightContainsArray": {"zh-Hans": "browser.preflightContains 必须是字符串数组，且各项非空。", "en": "browser.preflightContains must be an array of non-empty strings."},
-    "preflightContainsNeedsSeconds": {"zh-Hans": "使用 browser.preflightContains 时必须设置正的 browser.preflightSeconds。", "en": "browser.preflightContains requires a positive browser.preflightSeconds."},
+    "preflightTextNeedsPreflight": {"zh-Hans": "设置了 browser.preflightContains 或 preflightForbid 时不能关闭开录前检查（browser.preflight）。", "en": "browser.preflightContains and preflightForbid require the pre-recording check (browser.preflight) to stay on."},
     "scratchDirectoryNonempty": {"zh-Hans": "browser.scratchDir 必须是非空路径字符串。", "en": "browser.scratchDir must be a non-empty path string."},
     "settingsObject": {"zh-Hans": "settings 必须是非空设置分组对象。", "en": "settings must be a non-empty object containing setting groups."},
     "beatsNonempty": {"zh-Hans": "beats 必须至少包含一拍。", "en": "beats must contain at least one beat."},
@@ -62,6 +69,8 @@ MESSAGES: dict[str, dict[str, str]] = {
     "actionPrefix": {"zh-Hans": "拍子 {beat_id} 的 actions[{index}]", "en": "Beat {beat_id}, actions[{index}]"},
     "actionObject": {"zh-Hans": "{prefix} 必须是对象。", "en": "{prefix} must be an object."},
     "actionUnsupported": {"zh-Hans": "{prefix}.action 不支持。", "en": "{prefix}.action is unsupported."},
+    "actionWheelDelta": {"zh-Hans": "{prefix} 需要有限数值的 deltaX 或 deltaY，且至少一个不为 0。", "en": "{prefix} requires finite deltaX or deltaY values, at least one of them nonzero."},
+    "actionSwitchTab": {"zh-Hans": "{prefix}.tab 必须是 main 或 browser.tabs 里的 id。", "en": "{prefix}.tab must be main or an id from browser.tabs."},
     "actionOpenURL": {"zh-Hans": "{prefix} 需要 http(s) URL。", "en": "{prefix} requires an HTTP(S) URL."},
     "actionSelectorFraction": {"zh-Hans": "{prefix} 需要 selector 或 fraction 二选一。", "en": "{prefix} requires exactly one of selector or fraction."},
     "actionFractionRange": {"zh-Hans": "{prefix}.fraction u/v 必须在 0–1。", "en": "{prefix}.fraction u/v must be between 0 and 1."},
@@ -94,7 +103,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "inspectURL": {"zh-Hans": "--inspect 需要 http(s) URL。", "en": "--inspect requires an HTTP(S) URL."},
     "actionPressKey": {"zh-Hans": "{prefix}.key 需要有效按键及可选修饰键。", "en": "{prefix}.key requires a valid key and optional modifiers."},
     "stageUnstable": {"zh-Hans": "等待网页渲染稳定超时。", "en": "Timed out waiting for the page to settle."},
-    "helpPreflightOnly": {"zh-Hans": "只录制并 OCR 检查短试拍，不开始完整录制", "en": "Record and OCR-check only the short preflight take"},
+    "helpPreflightOnly": {"zh-Hans": "只做开录前的窗口快照与文字检查，不开始录制", "en": "Run only the pre-recording window snapshot and text check, without recording"},
     "helpHelp": {"zh-Hans": "显示此帮助并退出", "en": "Show this help and exit"},
     "usagePrefix": {"zh-Hans": "用法：", "en": "usage:"},
     "optionsHeading": {"zh-Hans": "选项：", "en": "options:"},
@@ -112,21 +121,26 @@ MESSAGES: dict[str, dict[str, str]] = {
     "pageURLMismatch": {"zh-Hans": "浏览器页面地址与 Playbook 演示页不一致。", "en": "The browser page URL doesn’t match the playbook demonstration page."},
     "stagePageUnavailable": {"zh-Hans": "独立舞台页面不可用。", "en": "The isolated stage page is unavailable."},
     "nativeTitleMismatch": {"zh-Hans": "原生采集窗口或活动页面标题不匹配。", "en": "The native capture window or active page title doesn’t match."},
-    "stageURLStateMismatch": {"zh-Hans": "独立舞台页面的地址或状态不匹配 Playbook。", "en": "The isolated stage page URL or state doesn’t match the playbook."},
-    "stageNativeTitleMismatch": {"zh-Hans": "独立舞台采集窗口与实际页面标题不匹配。", "en": "The isolated stage capture window doesn’t match the actual page title."},
     "stageStyleObject": {"zh-Hans": "settings.style 必须是对象，无法确认舞台画面边界。", "en": "settings.style must be an object so the stage frame bounds can be verified."},
     "browserViewportInvalid": {"zh-Hans": "浏览器视口尺寸无效，无法安全裁掉顶部浏览器区域。", "en": "The browser viewport dimensions are invalid, so browser chrome can’t be cropped safely."},
     "browserCropInvalid": {"zh-Hans": "浏览器顶部裁切范围无效。", "en": "The browser’s top crop range is invalid."},
     "browserStyleObject": {"zh-Hans": "settings.style 必须是对象，无法设置顶部裁切。", "en": "settings.style must be an object so the top crop can be set."},
-    "preflightOnlyNeedsSeconds": {"zh-Hans": "--preflight-only 需要正的 browser.preflightSeconds，已阻止完整录制。", "en": "--preflight-only requires a positive browser.preflightSeconds. The full recording won’t start."},
-    "preflightProjectMissing": {"zh-Hans": "短试拍已停止，但没有返回工程路径。", "en": "The preflight recording stopped without returning a project path."},
-    "preflightOCRMissing": {"zh-Hans": "短试拍 OCR 未识别到 preflightContains 的全部文本，已阻止完整录制。", "en": "Preflight OCR didn’t find every preflightContains string. The full recording won’t start."},
-    "preflightTitleChanged": {"zh-Hans": "短试拍后录制窗口标题已变化；已阻止完整录制。", "en": "The recording window title changed after preflight. The full recording won’t start."},
+    "preflightOnlyNeedsPreflight": {"zh-Hans": "--preflight-only 需要开启开录前检查（browser.preflight）。", "en": "--preflight-only requires the pre-recording check (browser.preflight) to be on."},
+    "preflightOCRMissing": {"zh-Hans": "开录前的窗口快照没有识别到 preflightContains 的全部文字，已阻止录制。", "en": "The window snapshot before recording didn’t show every preflightContains string. Recording didn’t start."},
     "recordingSourceChanged": {"zh-Hans": "录制采集窗口已变化；录制已中止以避免混入其他页面。", "en": "The recording capture window changed. Recording stopped to avoid capturing another page."},
     "recordingNotActive": {"zh-Hans": "录制已暂停或结束；Playbook 已停止，没有继续执行浏览器动作。", "en": "Recording is paused or has ended. The playbook stopped before running another browser action."},
     "recordingStoppedUnexpectedly": {"zh-Hans": "录制由 {stopped_by} 停止；Playbook 不会继续处理这段工程。", "en": "Recording stopped by {stopped_by}. The playbook won’t continue processing this project."},
     "beatZeroDuration": {"zh-Hans": "拍子 {identifier} 的录制时长为零。", "en": "Beat {identifier} has zero recording duration."},
     "projectMissing": {"zh-Hans": "录制已停止，但没有返回工程路径。", "en": "The recording stopped without returning a project path."},
+    "attachObject": {"zh-Hans": "attach 必须是对象，包含 project（口播工程路径）与 atOutputMs（非负成片毫秒）。", "en": "attach must be an object with project (the voice-over project path) and atOutputMs (non-negative output milliseconds)."},
+    "attachProjectPath": {"zh-Hans": "attach.project 必须是 .oilstudio 工程路径。", "en": "attach.project must be a .oilstudio project path."},
+    "attachPlanPath": {"zh-Hans": "attach.plan 必须是方案 JSON 文件路径。", "en": "attach.plan must be the path to a plan JSON file."},
+    "attachReplaceRange": {"zh-Hans": "attach.replaceUntilOutputMs 必须大于 attach.atOutputMs（成片毫秒）。", "en": "attach.replaceUntilOutputMs must be greater than attach.atOutputMs (output milliseconds)."},
+    "attachDurationRange": {"zh-Hans": "attach.durationMs 必须是正数（毫秒）。", "en": "attach.durationMs must be a positive number of milliseconds."},
+    "attachExportUnsupported": {"zh-Hans": "补画面模式不导出成片；所有片段补完后再对口播工程运行 export。", "en": "Attach mode doesn’t export. Run export on the voice-over project after all clips are in place."},
+    "actionAtMsRange": {"zh-Hans": "{prefix}.atMs 必须是非负毫秒，且只用于补画面模式（attach）。", "en": "{prefix}.atMs must be non-negative milliseconds and is only allowed in attach mode."},
+    "actionAtMsOpen": {"zh-Hans": "{prefix} 是开场 open，在录制开始前执行，不能带 atMs。", "en": "{prefix} is the opening open action, which runs before recording starts, so it can’t have atMs."},
+    "screenClipMissing": {"zh-Hans": "录制已并入口播工程，但没有返回录屏片段。", "en": "The recording was added to the voice-over project, but no screen clip was returned."},
     "autoZoomRemovalReason": {"zh-Hans": "替换录制点击自动缩放，避免与 Playbook 镜头段重叠", "en": "Replace recorded click zooms to avoid overlapping playbook zoom ranges"},
     "manualZoomOverlap": {"zh-Hans": "已有手动缩放与 Playbook 镜头段重叠；请先处理重叠后再提交。", "en": "An existing manual zoom overlaps a playbook zoom range. Resolve the overlap before submitting."},
     "zoomPlanSummary": {"zh-Hans": "网页演示重点缩放", "en": "Web demonstration zoom highlights"},
@@ -144,10 +158,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "stageLoadFailed": {"zh-Hans": "舞台页未能加载到指定地址并取得实际标题：{detail}", "en": "The stage page couldn’t load the requested URL and report its actual title: {detail}"},
     "stageOperationFailed": {"zh-Hans": "舞台页操作失败：{detail}", "en": "The stage page operation failed: {detail}"},
     "unknownError": {"zh-Hans": "未知错误", "en": "unknown error"},
-    "stageTokenMissing": {"zh-Hans": "舞台窗口会话令牌不可用。", "en": "The stage window session token is unavailable."},
-    "browserInvalidJSON": {"zh-Hans": "网页操作没有返回有效 JSON（{reason}，exit={code}）。", "en": "The browser operation didn’t return valid JSON ({reason}, exit={code})."},
     "emptyOutput": {"zh-Hans": "无输出", "en": "empty output"},
-    "browserOperationFailed": {"zh-Hans": "网页操作失败（exit={code}）。", "en": "The browser operation failed (exit={code})."},
     "targetOutsideWindow": {"zh-Hans": "网页目标换算后落在录制窗口之外；请检查窗口尺寸或选择器。", "en": "The web target falls outside the recording window after conversion. Check the window dimensions or selector."},
     "fractionOutsideViewport": {"zh-Hans": "窗口比例位置落在网页视口之外。", "en": "The window-relative position falls outside the web viewport."},
     "noUserPage": {"zh-Hans": "浏览器任务没有可同步的用户页面。", "en": "The browser task has no user page to synchronize."},
@@ -155,6 +166,16 @@ MESSAGES: dict[str, dict[str, str]] = {
     "stageRequestFailed": {"zh-Hans": "舞台控制请求失败。", "en": "The stage control request failed."},
     "stageWaitTimeout": {"zh-Hans": "等待舞台页面状态超时。", "en": "Timed out waiting for the stage page."},
     "stageControllerUnavailable": {"zh-Hans": "舞台页面控制器不可用。", "en": "The stage page controller is unavailable."},
+    "browserBridgeMissing": {"zh-Hans": "网页自动化桥接进程尚未启动。", "en": "The browser automation bridge hasn’t started."},
+    "browserBridgeStartFailed": {"zh-Hans": "无法启动网页自动化桥接进程：{detail}", "en": "Couldn’t start the browser automation bridge: {detail}"},
+    "browserBridgeExited": {"zh-Hans": "网页自动化桥接进程已退出：{detail}", "en": "The browser automation bridge exited: {detail}"},
+    "browserOperationFailedDetail": {"zh-Hans": "网页操作失败：{detail}", "en": "The browser operation failed: {detail}"},
+    "cdpNeedsNode": {"zh-Hans": "cdp 宿主需要 Node.js 22 或更新版本。", "en": "The cdp host requires Node.js 22 or later."},
+    "cdpUnavailable": {"zh-Hans": "无法连接浏览器调试端口；请确认浏览器已用 --remote-debugging-port 启动，且 browser.cdpURL 正确。", "en": "Couldn’t connect to the browser’s debugging port. Make sure the browser was started with --remote-debugging-port and that browser.cdpURL is correct."},
+    "cdpClosed": {"zh-Hans": "与浏览器调试端口的连接已断开。", "en": "The connection to the browser’s debugging port closed."},
+    "cdpLoadTimeout": {"zh-Hans": "等待页面加载超时。", "en": "Timed out waiting for the page to load."},
+    "tabsUnsupported": {"zh-Hans": "当前浏览器宿主不支持多个标签页。", "en": "This browser host doesn’t support multiple tabs."},
+    "tabUnknownPrefix": {"zh-Hans": "没有这个标签页：", "en": "No such tab: "},
     "noElementPrefix": {"zh-Hans": "没有元素匹配选择器：", "en": "No element matches selector: "},
     "zoomSelectorOutsidePrefix": {"zh-Hans": "缩放选择器不在当前视口内：", "en": "The zoom selector is outside the current viewport: "},
 }
@@ -189,8 +210,8 @@ def js_message(message_key: str, **values: Any) -> str:
     return json.dumps(message(message_key, **values), ensure_ascii=False)
 
 
-_STAGE_BRIDGE_URL: Optional[str] = None
-_STAGE_BRIDGE_TOKEN: Optional[str] = None
+# The persistent bridge (record_playbook_bridge.BrowserBridge) that browser_call uses; set by its `activate`.
+_ACTIVE_BRIDGE: Any = None
 
 
 def comparable_urls_match(actual: Any, target: Any) -> bool:
@@ -271,9 +292,6 @@ class StageWindowHost:
             process.terminate()
             raise ValueError(message("stagePortTimeout"))
         host = cls(process, f"http://127.0.0.1:{ready['port']}", log_path, token)
-        global _STAGE_BRIDGE_URL, _STAGE_BRIDGE_TOKEN
-        _STAGE_BRIDGE_URL = host.base_url
-        _STAGE_BRIDGE_TOKEN = token
         try:
             host.wait_until_ready(url)
         except Exception:
@@ -315,10 +333,6 @@ class StageWindowHost:
         return result.get("result", {})
 
     def close(self) -> None:
-        global _STAGE_BRIDGE_URL, _STAGE_BRIDGE_TOKEN
-        if _STAGE_BRIDGE_URL == self.base_url:
-            _STAGE_BRIDGE_URL = None
-            _STAGE_BRIDGE_TOKEN = None
         if self.process.poll() is None:
             self.process.terminate()
             try:
@@ -336,114 +350,25 @@ def require(condition: bool, message_key: str, **values: Any) -> None:
 
 
 def browser_call(space: Any, body: str, timeout: float = 60, page_ref: str = "p1") -> Any:
-    environment = None
-    if _STAGE_BRIDGE_URL:
-        require(_STAGE_BRIDGE_TOKEN is not None, "stageTokenMissing")
-        source = _stage_browser_source(_STAGE_BRIDGE_URL, body)
-        environment = os.environ.copy()
-        environment["OILSTUDIO_PLAYBOOK_STAGE_TOKEN"] = _STAGE_BRIDGE_TOKEN
-    else:
-        source = f'''(async () => {{
-const task = await taskSpace({json.dumps(space)});
-const pageRef = {json.dumps(page_ref)};
-let page;
-if (pageRef === "user") {{
-  const userPage = task.userPage();
-  if (!userPage) throw new Error({js_message("noUserPage")});
-  page = userPage.label ? userPage : await task.adopt(userPage);
-}} else {{
-  const pages = await task.pages();
-  if (!pages.some(item => item.label === pageRef)) throw new Error({js_message("pageNotManagedPrefix")} + pageRef);
-  page = task.page(pageRef);
-}}
-const result = await (async () => {{ {body} }})();
-console.log(JSON.stringify(result));
-}})().catch(error => {{ console.error(error?.stack || String(error)); process.exitCode = 1; }});'''
-    runner = ["node", "-e", source] if _STAGE_BRIDGE_URL else ["ego-browser", "nodejs", "-e", source]
-    result = subprocess.run(runner, capture_output=True, text=True, timeout=timeout, env=environment)
-    lines = [line for line in (result.stdout + "\n" + result.stderr).splitlines() if line.strip()]
-    value = None
-    parsed = False
-    parse_error: Optional[json.JSONDecodeError] = None
-    for line in reversed(lines):
-        try:
-            value = json.loads(line)
-            parsed = True
-            break
-        except json.JSONDecodeError as exc:
-            parse_error = exc
-    if not parsed:
-        stderr_lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
-        if result.returncode != 0 and stderr_lines:
-            reason = stderr_lines[0]
-        else:
-            reason = type(parse_error).__name__ if parse_error else message("emptyOutput")
-        raise ValueError(message("browserInvalidJSON", reason=reason, code=result.returncode))
-    if result.returncode != 0:
-        raise ValueError(message("browserOperationFailed", code=result.returncode))
-    return value
+    """Runs `body` (an async JavaScript function body with `page` and `task` in scope) in the active bridge.
+
+    `space` and `page_ref` were bound when the bridge started (record_playbook_bridge.BrowserBridge.start);
+    the parameters stay so call sites read the same for every host."""
+    bridge = _ACTIVE_BRIDGE
+    require(bridge is not None, "browserBridgeMissing")
+    return bridge.call(body, timeout=timeout)
 
 
-def _stage_browser_source(base_url: str, body: str) -> str:
-    return f'''(async () => {{
-const base = {json.dumps(base_url)};
-const token = process.env.OILSTUDIO_PLAYBOOK_STAGE_TOKEN;
-const request = async (path, payload) => {{
-  const headers = {{ authorization: `Bearer ${{token}}` }};
-  if (payload) headers["content-type"] = "application/json";
-  const response = await fetch(base + path, {{ method: payload ? "POST" : "GET", headers,
-    body: payload ? JSON.stringify(payload) : undefined }});
-  const value = await response.json();
-  if (!value.ok) throw new Error(value.error || {js_message("stageRequestFailed")});
-  return value.result;
-}};
-const waitState = async (predicate, timeout = 20000) => {{
-  const start = Date.now();
-  while (Date.now() - start < timeout) {{
-    const state = await request("/state");
-    if (predicate(state)) return state;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }}
-  throw new Error({js_message("stageWaitTimeout")});
-}};
-const page = {{
-  label: "stage-window", targetId: "stage-window",
-  goto: async url => {{ await request("/goto", {{url}}); return await waitState(state => {{
-    try {{ const actual = new URL(state.url), expected = new URL(url);
-      return (actual.protocol === expected.protocol || (expected.protocol === "http:" && actual.protocol === "https:"))
-        && actual.hostname === expected.hostname && actual.port === expected.port
-        && actual.username === expected.username && actual.password === expected.password
-        && actual.pathname === expected.pathname && actual.search === expected.search && actual.hash === expected.hash
-        && ["interactive","complete"].includes(state.readyState);
-    }} catch {{ return false; }}
-  }}); }},
-  waitForLoadState: async () => await waitState(state => ["interactive","complete"].includes(state.readyState)),
-  waitForTimeout: async ms => await new Promise(resolve => setTimeout(resolve, ms)),
-  url: async () => (await request("/state")).url,
-  title: async () => (await request("/state")).title,
-  evaluate: async (fn, argument) => {{
-    const isFunction = typeof fn === "function";
-    const value = await request("/evaluate", {{script:isFunction ? fn.toString() : String(fn), mode:isFunction ? "function" : "script", argument:argument ?? null}});
-    if (value && typeof value === "object" && value.innerWidth > 0 && value.outerWidth === 0) value.outerWidth = value.innerWidth;
-    if (value && typeof value === "object" && value.innerHeight > 0 && value.outerHeight === 0) value.outerHeight = value.innerHeight;
-    return value;
-  }},
-  click: async selector => await request("/selector", {{selector,action:"click"}}),
-  hover: async selector => await request("/selector", {{selector,action:"hover"}}),
-  cdp: async () => ({{}}),
-  mouse: {{
-    click: async (x,y) => await request("/point", {{x,y,action:"click"}}),
-    move: async (x,y) => await request("/point", {{x,y,action:"move"}})
-  }}
-}};
-const task = {{
-  tabs: async () => [{{active:true,targetId:"stage-window",label:"stage-window"}}],
-  cdp: async () => ({{}}),
-  finish: async () => ({{}})
-}};
-const result = await (async () => {{ {body} }})();
-console.log(JSON.stringify(result));
-}})().catch(error => {{ console.error(error?.stack || String(error)); process.exitCode = 1; }});'''
+def switch_tab(tab: str) -> None:
+    bridge = _ACTIVE_BRIDGE
+    require(bridge is not None, "browserBridgeMissing")
+    bridge.switch_tab(tab)
+
+
+def open_tab(tab: str, url: str) -> None:
+    bridge = _ACTIVE_BRIDGE
+    require(bridge is not None, "browserBridgeMissing")
+    bridge.open_tab(tab, url)
 
 
 def page_metrics(space: Any, source: dict[str, Any], page_ref: str = "p1") -> dict[str, float]:
@@ -585,33 +510,41 @@ return true;''', page_ref=page_ref)
 
 def run_action(cli: str, space: Any, source: dict[str, Any], beat: dict[str, Any], action_index: int,
     action: dict[str, Any], preopened: bool, run_cli: Callable[..., dict[str, Any]], page_ref: str = "p1",
-    ensure_recording_active: Optional[Callable[[], Any]] = None) -> None:
+    ensure_recording_active: Optional[Callable[[], Any]] = None,
+    point: Optional[dict[str, float]] = None) -> Optional[dict[str, Any]]:
+    """Runs one action. A pointer action given a pre-measured `point` is due now (its `atMs` has arrived),
+    so it skips the extra recorder checks before the declaration and the page action.
+    Returns the declaration response of pointer actions."""
     def ensure_active() -> None:
         if ensure_recording_active is not None:
             ensure_recording_active()
 
     kind = action.get("action", action.get("type"))
     identifier = f"play-{beat['id']}-{action_index + 1}"
+    declared: Optional[dict[str, Any]] = None
     if kind == "open":
         if preopened:
-            return
+            return None
         ensure_active()
         browser_call(space, f'await page.goto({json.dumps(action["url"])}); return {{ url: await page.url(), title: await page.title() }};', timeout=120, page_ref=page_ref)
         ensure_active()
         inject_hud(space, beat.get("hud"), page_ref)
     elif kind in ("click", "move"):
-        ensure_active()
-        point = action_point(space, action, source, page_ref)
+        due = point is not None
+        if not due:
+            ensure_active()
+            point = action_point(space, action, source, page_ref)
+            ensure_active()
         command = "click" if kind == "click" else "move"
-        ensure_active()
-        run_cli(cli, "record", command, "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
-        ensure_active()
+        declared = run_cli(cli, "record", command, "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
+        if not due:
+            ensure_active()
         if action.get("selector"):
             method = "click" if kind == "click" else "hover"
-            browser_call(space, f'await page.{method}({json.dumps(action["selector"])}, {{ label: "Playbook {command} action" }}); return true;', page_ref=page_ref)
+            browser_call(space, f'await page.{method}({json.dumps(action["selector"])}); return true;', page_ref=page_ref)
         else:
             mouse_method = "click" if kind == "click" else "move"
-            browser_call(space, f'await page.mouse.{mouse_method}({point["viewX"]}, {point["viewY"]}, {{ label: "Playbook {command} action" }}); return true;', page_ref=page_ref)
+            browser_call(space, f'await page.mouse.{mouse_method}({point["viewX"]}, {point["viewY"]}); return true;', page_ref=page_ref)
     elif kind == "scroll":
         ensure_active()
         data = {"selector": action.get("selector"), "y": action.get("y"), "durationMs": action.get("durationMs", 600)}
@@ -645,16 +578,19 @@ await page.evaluate(async (data) => {{
 }}, data);
 return true;''', timeout=max(60, action.get("durationMs", 600) / 1000 + 15), page_ref=page_ref)
     elif kind == "input":
-        ensure_active()
-        point = action_point(space, action, source, page_ref)
-        ensure_active()
-        run_cli(cli, "record", "click", "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
-        ensure_active()
+        due = point is not None
+        if not due:
+            ensure_active()
+            point = action_point(space, action, source, page_ref)
+            ensure_active()
+        declared = run_cli(cli, "record", "click", "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
+        if not due:
+            ensure_active()
         data = {key: action[key] for key in ("selector", "value", "from", "to", "durationMs") if key in action}
         if "to" in data:
             data.setdefault("durationMs", 800)
         browser_call(space, f'''const data = {json.dumps(data, ensure_ascii=False)};
-await page.click(data.selector, {{ label: "Playbook input action" }});
+await page.click(data.selector);
 await page.evaluate(async (data) => {{
   const nextFrame = fn => setTimeout(() => fn(performance.now()), 16);
   let el = document.querySelector(data.selector);
@@ -740,6 +676,36 @@ await page.evaluate(async (data) => {{
   }}
 }}, data);
 return true;''', page_ref=page_ref)
+    elif kind == "wheel":
+        # Native wheel input at a point reaches scroll containers that DOM scrolling can't, such as
+        # cross-origin iframes; the cursor is declared there first so the picture shows where it scrolls.
+        due = point is not None
+        if not due:
+            ensure_active()
+            point = action_point(space, action, source, page_ref)
+            ensure_active()
+        declared = run_cli(cli, "record", "move", "--at-fraction", f"{point['u']:.6f},{point['v']:.6f}", "--id", identifier)
+        if not due:
+            ensure_active()
+        data = {"x": point["viewX"], "y": point["viewY"], "deltaX": action.get("deltaX", 0),
+            "deltaY": action.get("deltaY", 0), "durationMs": action.get("durationMs", 600)}
+        browser_call(space, f'''const data = {json.dumps(data)};
+await page.mouse.move(data.x, data.y);
+const steps = Math.max(1, Math.round(data.durationMs / 50));
+const begin = Date.now();
+for (let step = 1; step <= steps; step++) {{
+  await page.mouse.wheel(data.deltaX / steps, data.deltaY / steps);
+  const wait = begin + data.durationMs * step / steps - Date.now();
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+}}
+return true;''', timeout=max(60, action.get("durationMs", 600) / 1000 + 15), page_ref=page_ref)
+    elif kind == "switchTab":
+        ensure_active()
+        # The HUD belongs to the tab on screen; take it along.
+        inject_hud(space, None, page_ref)
+        switch_tab(action["tab"])
+        ensure_active()
+        inject_hud(space, beat.get("hud"), page_ref)
     elif kind == "eval":
         ensure_active()
         browser_call(space, f'const value = await page.evaluate({json.dumps(action["script"], ensure_ascii=False)}); return value ?? true;', page_ref=page_ref)
@@ -751,6 +717,7 @@ return true;''', page_ref=page_ref)
     elif kind == "mark":
         ensure_active()
         run_cli(cli, "record", "mark")
+    return declared
 
 
 def wait_for_render_stability(space: Any = None, page_ref: str = "p1") -> None:

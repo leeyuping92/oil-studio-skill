@@ -19,16 +19,28 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import urlsplit
 
-from record_playbook_browser import StageWindowHost, action_point, browser_call, comparable_urls_match, inject_hud, inspect_page, message, page_metrics, run_action, selector_point, to_window_point, wait_for_render_stability
+from record_playbook_browser import StageWindowHost, action_point, browser_call, comparable_urls_match, inject_hud, inspect_page, message, open_tab, page_metrics, run_action, selector_point, switch_tab, to_window_point, wait_for_render_stability
+from record_playbook_bridge import BrowserBridge, activate as activate_bridge
 
 
 class PlaybookError(Exception):
     pass
 
 
-ACTIONS = {"open", "click", "move", "scroll", "input", "press", "eval", "wait", "mark"}
+ACTIONS = {"open", "click", "move", "scroll", "wheel", "input", "press", "eval", "wait", "mark", "switchTab"}
+POINTER_ACTIONS = {"click", "move", "input", "wheel"}
 POSITIONS = {"top-right", "bottom-left", "top-left"}
+HOSTS = {"stage-window", "cdp", "browser", "ego-browser"}
+# Text that must never be recorded: automation control bars and cursor captions of agent browsers, and
+# browser prompts that cover the page. Matched in the pre-recording window snapshot after removing
+# whitespace and case; `browser.preflightForbid` replaces the list.
+DEFAULT_PREFLIGHT_FORBID: list[str] = [
+    "Agent 正在控制", "终止任务", "Agent is controlling", "Agent is in control",
+    "Clicking element", "Playbook click action", "Playbook move action", "Playbook input action",
+    "翻译此页", "Translate this page", "正受到自动测试软件的控制", "is being controlled by automated test software",
+]
 
 
 def fail(message_key: str, **values: Any) -> None:
@@ -81,26 +93,48 @@ def validate_playbook(book: dict[str, Any]) -> None:
     require("exactTitle" not in source or isinstance(source["exactTitle"], bool), "exactTitleBoolean")
     browser = book.get("browser")
     require(browser is None or isinstance(browser, dict), "browserObject")
-    if browser is not None:
-        require(browser.get("host") in (None, "browser", "stage-window", "ego-browser"), "browserHost")
-        require(not (browser.get("host") == "stage-window" and "sourceId" in source), "stageSourceIdConflict")
-        space = browser.get("space", browser.get("spaceId"))
-        require(space is None or isinstance(space, (str, int)) and not isinstance(space, bool), "browserSpaceType")
-        page_ref = browser.get("page", "p1")
-        require(isinstance(page_ref, str) and (page_ref == "user" or re.fullmatch(r"p[1-9][0-9]*", page_ref)),
-            "browserPageFormat")
-        require(isinstance(browser.get("cropBrowserChrome", True), bool), "cropBrowserChromeBoolean")
-        preflight_seconds = browser.get("preflightSeconds", 0)
-        require(isinstance(preflight_seconds, (int, float)) and math.isfinite(preflight_seconds)
-            and 0 <= preflight_seconds <= 10, "preflightSecondsRange")
-        preflight_contains = browser.get("preflightContains", [])
-        require(isinstance(preflight_contains, list) and all(isinstance(text, str) and bool(text.strip())
-            for text in preflight_contains), "preflightContainsArray")
-        require(not preflight_contains or preflight_seconds > 0, "preflightContainsNeedsSeconds")
-        require(browser.get("scratchDir") is None or isinstance(browser.get("scratchDir"), str)
-            and bool(browser["scratchDir"].strip()), "scratchDirectoryNonempty")
+    browser = browser or {}
+    require(browser.get("host") in (None, *HOSTS), "browserHost")
+    cdp_url = browser.get("cdpURL")
+    require(cdp_url is None or is_loopback_http_url(cdp_url), "browserCdpURL")
+    host = resolve_host(browser)
+    require((host == "cdp") == (cdp_url is not None), "browserCdpURLHost")
+    require(not (host == "stage-window" and "sourceId" in source), "stageSourceIdConflict")
+    space = browser.get("space", browser.get("spaceId"))
+    require(space is None or isinstance(space, (str, int)) and not isinstance(space, bool), "browserSpaceType")
+    page_ref = browser.get("page", "p1")
+    require(isinstance(page_ref, str) and (page_ref == "user" or re.fullmatch(r"p[1-9][0-9]*", page_ref)),
+        "browserPageFormat")
+    require(isinstance(browser.get("cropBrowserChrome", True), bool), "cropBrowserChromeBoolean")
+    preflight_seconds = browser.get("preflightSeconds", 0)
+    require(isinstance(preflight_seconds, (int, float)) and math.isfinite(preflight_seconds)
+        and 0 <= preflight_seconds <= 10, "preflightSecondsRange")
+    require("preflight" not in browser or isinstance(browser["preflight"], bool), "preflightBoolean")
+    for key, message_key in (("preflightContains", "preflightContainsArray"), ("preflightForbid", "preflightForbidArray")):
+        texts = browser.get(key, [])
+        require(isinstance(texts, list) and all(isinstance(text, str) and bool(text.strip()) for text in texts), message_key)
+    require(not (browser.get("preflightContains") or browser.get("preflightForbid")) or preflight_enabled(browser),
+        "preflightTextNeedsPreflight")
+    require(browser.get("scratchDir") is None or isinstance(browser.get("scratchDir"), str)
+        and bool(browser["scratchDir"].strip()), "scratchDirectoryNonempty")
+    tabs = browser.get("tabs", [])
+    require(isinstance(tabs, list) and all(isinstance(tab, dict) and isinstance(tab.get("id"), str) and tab["id"].strip()
+        and tab["id"] != "main" and isinstance(tab.get("url"), str) and tab["url"].startswith(("https://", "http://"))
+        for tab in tabs) and len({tab["id"] for tab in tabs}) == len(tabs), "browserTabs")
+    require(not tabs or host != "stage-window", "tabsNeedBrowser")
+    tab_ids = {"main", *(tab["id"] for tab in tabs)}
     settings = book.get("settings")
     require(settings is None or isinstance(settings, dict) and bool(settings), "settingsObject")
+    attach = book.get("attach")
+    if attach is not None:
+        require(isinstance(attach, dict) and is_nonnegative_number(attach.get("atOutputMs")), "attachObject")
+        require(isinstance(attach.get("project"), str) and attach["project"].rstrip("/").endswith(".oilstudio"),
+            "attachProjectPath")
+        require("durationMs" not in attach or is_nonnegative_number(attach["durationMs"]) and attach["durationMs"] > 0,
+            "attachDurationRange")
+        require("plan" not in attach or isinstance(attach["plan"], str) and bool(attach["plan"].strip()), "attachPlanPath")
+        require("replaceUntilOutputMs" not in attach or is_nonnegative_number(attach["replaceUntilOutputMs"])
+            and attach["replaceUntilOutputMs"] > attach["atOutputMs"], "attachReplaceRange")
     beats = book.get("beats")
     require(isinstance(beats, list) and bool(beats), "beatsNonempty")
     ids: set[str] = set()
@@ -116,8 +150,16 @@ def validate_playbook(book: dict[str, Any]) -> None:
         require(isinstance(actions, list), "beatActionsArray", identifier=identifier)
         for action_index, action in enumerate(actions):
             validate_action(identifier, action_index, action)
+            if action.get("action", action.get("type")) == "switchTab":
+                prefix = message("actionPrefix", beat_id=identifier, index=action_index)
+                require(host != "stage-window", "tabsNeedBrowser")
+                require(action["tab"] in tab_ids, "actionSwitchTab", prefix=prefix)
             if action.get("action", action.get("type")) == "open" and first_open is None:
                 first_open = (beat_index, action_index)
+            if "atMs" in action:
+                prefix = message("actionPrefix", beat_id=identifier, index=action_index)
+                require(attach is not None and is_nonnegative_number(action["atMs"]), "actionAtMsRange", prefix=prefix)
+                require((beat_index, action_index) != (0, 0), "actionAtMsOpen", prefix=prefix)
         hud = beat.get("hud")
         if hud is not None:
             require(isinstance(hud, dict), "beatHudObject", identifier=identifier)
@@ -152,6 +194,91 @@ def validate_playbook(book: dict[str, Any]) -> None:
     require(first_open == (0, 0), "firstOpenRequired")
 
 
+def resolve_host(browser: dict[str, Any]) -> str:
+    """The browser host follows from the playbook alone, never from what happens to be installed.
+
+    The isolated stage is the default because it never shows automation overlays. Agent browsers that
+    draw a control bar while they drive the page (ego-browser) are used only when asked for by name."""
+    host = browser.get("host")
+    if host == "ego-browser":
+        return "browser"
+    if host is not None:
+        return host
+    if browser.get("cdpURL") is not None:
+        return "cdp"
+    return "browser" if browser.get("page") == "user" else "stage-window"
+
+
+def preflight_enabled(browser: dict[str, Any]) -> bool:
+    """Real browsers can show overlays and prompts that the playbook doesn't control, so they get a
+    window snapshot check before recording unless the playbook turns it off."""
+    if "preflight" in browser:
+        return browser["preflight"]
+    return browser.get("preflightSeconds", 0) > 0 or resolve_host(browser) != "stage-window"
+
+
+def record_start_arguments(source_id: str, attach: Optional[dict[str, Any]]) -> list[str]:
+    arguments = ["record", "start", "--source", source_id]
+    if attach is None:
+        return arguments
+    arguments += ["--into", str(Path(attach["project"]).expanduser()), "--at-output-ms", str(int(round(attach["atOutputMs"])))]
+    # Times are on the plan's cut timeline when the plan hasn't been applied yet.
+    if attach.get("plan"):
+        arguments += ["--plan", str(Path(attach["plan"]).expanduser())]
+    replace_until = attach.get("replaceUntilOutputMs")
+    # On the plan's timeline the take spans more of the current timeline than its own length, so an
+    # older clip right after it could cover its tail once the plan applies; clear the whole span.
+    if replace_until is None and attach.get("plan") and "durationMs" in attach:
+        replace_until = attach["atOutputMs"] + attach["durationMs"]
+    if replace_until is not None:
+        arguments += ["--replace-until-output-ms", str(int(round(replace_until)))]
+    return arguments
+
+
+def is_loopback_http_url(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urlsplit(value)
+        return parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1") \
+            and parts.port is not None and not parts.username and not parts.password and parts.path in ("", "/")
+    except ValueError:
+        return False
+
+
+def is_nonnegative_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
+
+# While more than this remains, the wait re-reads the recorder clock instead of trusting wall time.
+TIMED_ACTION_RESYNC_MS = 1000.0
+# Longest single sleep between recorder clock reads.
+TIMED_ACTION_MAX_SLEEP_MS = 5000.0
+
+
+def wait_until_recorded_ms(target_ms: float, recording_status: Callable[[], dict[str, Any]],
+    now: Callable[[], float] = time.monotonic) -> dict[str, Any]:
+    """Returns when a CLI command started next reaches the App as this take records `target_ms`
+    (source milliseconds since the take began).
+
+    In attach mode the take starts at the voice-over anchor, so a take-relative time is the
+    offset into the voice-over where the action should land. Each `record status` read also measures
+    the command round trip (process start, socket, reply); the next command costs about the same, so
+    the wait ends that much early."""
+    while True:
+        sent = now()
+        status = recording_status()
+        round_trip_ms = max(0.0, (now() - sent) * 1000)
+        remaining_ms = target_ms - float(status.get("durationSourceMs", 0)) - round_trip_ms
+        if remaining_ms <= 0:
+            return status
+        if remaining_ms > TIMED_ACTION_RESYNC_MS:
+            time.sleep(min(remaining_ms - TIMED_ACTION_RESYNC_MS / 2, TIMED_ACTION_MAX_SLEEP_MS) / 1000)
+            continue
+        time.sleep(remaining_ms / 1000)
+        return status
+
+
 def validate_action(beat_id: str, index: int, action: Any) -> None:
     prefix = message("actionPrefix", beat_id=beat_id, index=index)
     require(isinstance(action, dict), "actionObject", prefix=prefix)
@@ -176,6 +303,21 @@ def validate_action(beat_id: str, index: int, action: Any) -> None:
             "actionSelectorNonempty", prefix=prefix)
         require(isinstance(action.get("durationMs", 600), (int, float)) and math.isfinite(action.get("durationMs", 600)) and action.get("durationMs", 600) >= 0,
             "actionDurationNonnegative", prefix=prefix)
+    elif kind == "wheel":
+        selector = action.get("selector")
+        fraction = action.get("fraction")
+        require((isinstance(selector, str) and bool(selector.strip())) != (isinstance(fraction, dict)),
+            "actionSelectorFraction", prefix=prefix)
+        if fraction is not None:
+            require(all(isinstance(fraction.get(axis), (int, float)) and math.isfinite(fraction[axis])
+                and 0 <= fraction[axis] <= 1 for axis in ("u", "v")), "actionFractionRange", prefix=prefix)
+        deltas = [action.get(key, 0) for key in ("deltaX", "deltaY")]
+        require(all(isinstance(delta, (int, float)) and not isinstance(delta, bool) and math.isfinite(delta) for delta in deltas)
+            and any(deltas), "actionWheelDelta", prefix=prefix)
+        require(isinstance(action.get("durationMs", 600), (int, float)) and math.isfinite(action.get("durationMs", 600)) and action.get("durationMs", 600) >= 0,
+            "actionDurationNonnegative", prefix=prefix)
+    elif kind == "switchTab":
+        require(isinstance(action.get("tab"), str) and bool(action["tab"].strip()), "actionSwitchTab", prefix=prefix)
     elif kind == "input":
         require(isinstance(action.get("selector"), str) and bool(action["selector"].strip()),
             "actionInputSelector", prefix=prefix)
@@ -266,12 +408,6 @@ def active_recording_status(run_cli) -> dict[str, Any]:
     return status
 
 
-def preflight_project_path(stop_result: dict[str, Any]) -> Path:
-    project = stop_result.get("path")
-    require(isinstance(project, str) and project.endswith(".oilstudio"), "preflightProjectMissing")
-    return Path(project)
-
-
 def recorded_auto_zoom_overlaps(existing: dict[str, Any], desired_zooms: list[dict[str, Any]]) -> bool:
     return any(max(existing["sourceStartMs"], desired["sourceStartMs"])
         < min(existing["sourceEndMs"], desired["sourceEndMs"]) for desired in desired_zooms)
@@ -289,12 +425,14 @@ def preflight_ocr_matches(recognized: str, expected_texts: list[str]) -> list[bo
     return [re.sub(r"\s+", "", text.casefold()) in compact for text in expected_texts]
 
 
-def preflight_frame_source_ms(seconds: float) -> int:
-    duration_ms = max(0, int(seconds * 1000))
-    return min(500, max(0, duration_ms - 1))
+def preflight_forbidden(recognized: str, forbidden_texts: list[str]) -> list[str]:
+    compact = re.sub(r"\s+", "", recognized.casefold())
+    return [text for text in forbidden_texts if re.sub(r"\s+", "", text.casefold()) in compact]
 
 
-def ocr_text(frame: dict[str, Any]) -> str:
+def ocr_text(frame: dict[str, Any], visible_top: float = 0) -> str:
+    """Recognized text, keeping only lines whose center lies at or below `visible_top`
+    (normalized from the top), so browser chrome that the recording crops away is ignored."""
     value = frame.get("text", [])
     if isinstance(value, str):
         return value
@@ -306,9 +444,21 @@ def ocr_text(frame: dict[str, Any]) -> str:
             parts.append(item)
         elif isinstance(item, dict):
             text = item.get("text") or item.get("value")
+            top, height = item.get("y"), item.get("height")
+            if isinstance(top, (int, float)) and isinstance(height, (int, float)) and top + height / 2 < visible_top:
+                continue
             if isinstance(text, str):
                 parts.append(text)
     return " ".join(parts)
+
+
+def open_bridge(host: str, scratch: Path, *, stage_host: Optional[StageWindowHost] = None, space: Any = None,
+    page_ref: str = "p1", cdp_url: Optional[str] = None, first_url: Optional[str] = None) -> BrowserBridge:
+    bridge = BrowserBridge.start("stage" if host == "stage-window" else host, scratch / "bridge", space=space,
+        page=page_ref, stage_url=stage_host.base_url if stage_host else None,
+        stage_token=stage_host.token if stage_host else None, cdp_url=cdp_url, first_url=first_url)
+    activate_bridge(bridge)
+    return bridge
 
 
 class PlaybookArgumentParser(argparse.ArgumentParser):
@@ -371,6 +521,7 @@ def main() -> int:
     recording_cli = bind_cli(args.cli, run_cli)
     report: dict[str, Any] = {"ok": False, "playbook": str(args.playbook), "phases": []}
     stage_host: Optional[StageWindowHost] = None
+    bridge: Optional[BrowserBridge] = None
     report_path_valid = False
     previous_sigterm = None
     try:
@@ -384,6 +535,7 @@ def main() -> int:
             require(shutil.which("node") is not None, "nodeUnavailable")
             with tempfile.TemporaryDirectory(prefix="oil-studio-inspect-") as scratch:
                 stage_host = StageWindowHost.start(args.inspect, Path(scratch) / "stage-host")
+                bridge = open_bridge("stage-window", Path(scratch), stage_host=stage_host)
                 result = inspect_page()
                 write_report(args.out_report, result)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -402,6 +554,7 @@ def main() -> int:
             first_url = book["beats"][0]["actions"][0]["url"]
             with tempfile.TemporaryDirectory(prefix="oil-studio-rehearse-") as scratch:
                 stage_host = StageWindowHost.start(first_url, Path(scratch) / "stage-host")
+                bridge = open_bridge("stage-window", Path(scratch), stage_host=stage_host)
                 wait_for_render_stability()
                 source = {"width": 1920, "height": 1080}
                 report["rehearsal"] = []
@@ -426,79 +579,60 @@ def main() -> int:
                 print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
         require(shutil.which(args.cli) is not None, "cliNotFound", command=args.cli)
-        require(shutil.which("node") is not None, "nodeUnavailable")
-        browser_cfg = book.get("browser", {})
-        requested_host = browser_cfg.get("host")
-        if requested_host == "ego-browser":
-            requested_host = "browser"
-        has_browser_cli = shutil.which("ego-browser") is not None
-        if requested_host is None and not has_browser_cli and browser_cfg.get("page") != "user" and "sourceId" not in book["source"]:
-            use_stage_window = True
-        else:
-            use_stage_window = requested_host == "stage-window"
-        if not use_stage_window:
-            require(has_browser_cli, "browserAutomationUnavailable")
+        browser_cfg = book.get("browser") or {}
+        host = resolve_host(browser_cfg)
+        require(host == "browser" or shutil.which("node") is not None, "nodeUnavailable")
+        require(host != "browser" or shutil.which("ego-browser") is not None, "browserAutomationUnavailable")
+        attach = book.get("attach")
+        require(attach is None or args.export is None, "attachExportUnsupported")
         require(args.export is None or args.export.suffix.lower() == ".mp4", "exportExtension")
         require(args.export is None or not args.export.expanduser().exists(), "exportExists")
         first_url = book["beats"][0]["actions"][0]["url"]
-        space = browser_cfg.get("space", browser_cfg.get("spaceId"))
-        if use_stage_window:
-            space = None
-        elif space is None:
-            space = f"Web Demo {uuid.uuid4()}"
+        space = None
+        if host == "browser":
+            space = browser_cfg.get("space", browser_cfg.get("spaceId")) or f"Web Demo {uuid.uuid4()}"
         page_ref = browser_cfg.get("page", "p1")
         scratch = make_scratch_directory(browser_cfg.get("scratchDir"))
-        if use_stage_window:
+        if host == "stage-window":
             stage_host = StageWindowHost.start(first_url, scratch / "stage-host")
-            browser_state = browser_call(space, '''const metrics = await page.evaluate(() => ({ innerWidth, innerHeight, outerWidth, outerHeight }));
+        bridge = open_bridge(host, scratch, stage_host=stage_host, space=space, page_ref=page_ref,
+            cdp_url=browser_cfg.get("cdpURL"), first_url=first_url)
+        if host != "stage-window":
+            # A tab already at the opening address (for example one the user signed in to) is not reloaded.
+            if not comparable_urls_match(browser_call(space, "return await page.url();", page_ref=page_ref), first_url):
+                browser_call(space, f'await page.goto({json.dumps(first_url)}); await page.waitForLoadState("domcontentloaded"); return true;',
+                    timeout=120, page_ref=page_ref)
+        browser_state = browser_call(space, '''const metrics = await page.evaluate(() => ({ innerWidth, innerHeight, outerWidth, outerHeight }));
 const tabs = await task.tabs();
 return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: page.label,
   activeTabMatchesPage: tabs.some(tab => tab.active && tab.targetId === page.targetId), metrics };''', timeout=120, page_ref=page_ref)
-        else:
-            browser_state = browser_call(space, f'''await page.goto({json.dumps(first_url)});
-await page.waitForLoadState("domcontentloaded");
-const metrics = await page.evaluate(() => ({{ innerWidth, innerHeight, outerWidth, outerHeight }}));
-const tabs = await task.tabs();
-return {{ pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: page.label,
-  activeTabMatchesPage: tabs.some(tab => tab.active && tab.targetId === page.targetId), metrics }};''', timeout=120, page_ref=page_ref)
         require(comparable_urls_match(browser_state.get("pageUrl"), first_url), "pageURLMismatch")
         page_title = actual_page_title(browser_state, book["source"])
         if stage_host is not None:
             require(browser_state.get("activeTabMatchesPage"), "stagePageUnavailable")
-        report["browser"] = {"host": "stage-window" if stage_host else "browser", "page": browser_state.get("pageLabel"),
-            "url": first_url, "title": page_title, "activeTab": browser_state.get("activeTabMatchesPage", False)}
+        # Extra tabs open before recording, in the background, so switching to them later is instant.
+        for tab in browser_cfg.get("tabs", []):
+            open_tab(tab["id"], tab["url"])
+        if browser_cfg.get("tabs"):
+            switch_tab("main")
+        report["browser"] = {"host": host, "page": browser_state.get("pageLabel"), "url": first_url, "title": page_title,
+            "activeTab": browser_state.get("activeTabMatchesPage", False), "tabs": [tab["id"] for tab in browser_cfg.get("tabs", [])]}
         report["phases"].append("browserPrepared")
 
         source_match = source_match_for_page(book["source"], page_title)
-        sources_result = run_cli(args.cli, "record", "sources")
-        try:
-            source = pick_source(sources_result.get("sources", []), source_match)
-            require(source.get("title") == page_title and browser_state.get("activeTabMatchesPage"), "nativeTitleMismatch")
-        except (PlaybookError, ValueError):
-            if stage_host is not None or requested_host is not None or browser_cfg.get("page") == "user" or "sourceId" in book["source"]:
-                raise
-            stage_host = StageWindowHost.start(first_url, scratch / "stage-host")
-            browser_state = browser_call(None, '''const metrics = await page.evaluate(() => ({ innerWidth, innerHeight, outerWidth, outerHeight }));
-const tabs = await task.tabs();
-return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: page.label,
-  activeTabMatchesPage: tabs.some(tab => tab.active && tab.targetId === page.targetId), metrics };''', timeout=120)
-            require(comparable_urls_match(browser_state.get("pageUrl"), first_url) and browser_state.get("activeTabMatchesPage"),
-                "stageURLStateMismatch")
-            page_title = actual_page_title(browser_state, book["source"])
-            source_match = {"title": page_title, "exactTitle": True}
-            source = pick_source(run_cli(args.cli, "record", "sources").get("sources", []), source_match)
-            require(source.get("title") == page_title, "stageNativeTitleMismatch")
-            report["browser"] = {"host": "stage-window", "page": browser_state.get("pageLabel"),
-                "url": first_url, "title": page_title, "activeTab": True, "fallback": "native-title-mismatch"}
+        source = pick_source(run_cli(args.cli, "record", "sources").get("sources", []), source_match)
+        require(source.get("title") == page_title and browser_state.get("activeTabMatchesPage"), "nativeTitleMismatch")
         report["source"] = {key: source.get(key) for key in ("id", "app", "title", "width", "height")}
         source_match = recording_source_match(source)
         report["phases"].append("nativeWindowTitleMatched")
 
         settings = book.setdefault("settings", {})
-        transitions = settings.setdefault("transitions", {})
+        # A voice-over project's cut transitions belong to the voice-over, not to one attached take.
+        transitions = settings.setdefault("transitions", {}) if attach is None else None
         if isinstance(transitions, dict):
             transitions.setdefault("style", "dissolve")
             transitions.setdefault("spanMs", 250)
+        visible_top = 0.0
         if stage_host is not None:
             style = settings.setdefault("style", {})
             require(isinstance(style, dict), "stageStyleObject")
@@ -518,37 +652,23 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
             style["cropNormalized"] = {"x": 0, "y": chrome_y, "width": 1, "height": 1 - chrome_y}
             style.setdefault("screenRadius", 12)
             report["browserChromeCrop"] = style["cropNormalized"]
+            visible_top = chrome_y
 
-        preflight_seconds = float(browser_cfg.get("preflightSeconds", 0))
-        require(not args.preflight_only or preflight_seconds > 0, "preflightOnlyNeedsSeconds")
-        preflight_contains = browser_cfg.get("preflightContains", [])
-        if preflight_seconds > 0:
-            probe_recording = False
-            try:
-                run_cli(args.cli, "record", "start", "--source", source["id"])
-                probe_recording = True
-                time.sleep(preflight_seconds)
-                probe_stop = run_cli(args.cli, "record", "stop")
-                probe_recording = False
-            finally:
-                if probe_recording:
-                    run_cli(args.cli, "record", "stop", "--discard", timeout=180)
-            require(probe_stop.get("stoppedBy") == "agent", "recordingStoppedUnexpectedly",
-                stopped_by=probe_stop.get("stoppedBy", "unknown"))
-            probe_project = preflight_project_path(probe_stop)
-            probe_frame = scratch / f"preflight-{uuid.uuid4().hex}.png"
-            probe_frame_ms = preflight_frame_source_ms(preflight_seconds)
-            frame_result = run_cli(args.cli, "frame", str(probe_project), "--source-ms", str(probe_frame_ms),
-                "--text", "--out", str(probe_frame))
-            recognized = ocr_text(frame_result)
+        run_preflight = preflight_enabled(browser_cfg)
+        require(not args.preflight_only or run_preflight, "preflightOnlyNeedsPreflight")
+        if run_preflight:
+            # A window snapshot, not a short take: no project is created and the editor keeps what it shows.
+            preflight_frame = scratch / f"preflight-{uuid.uuid4().hex}.png"
+            snapshot = run_cli(args.cli, "record", "screenshot", "--source", source["id"], "--text", "--out", str(preflight_frame))
+            recognized = ocr_text(snapshot, visible_top=visible_top)
+            preflight_contains = browser_cfg.get("preflightContains", [])
+            forbidden = preflight_forbidden(recognized, browser_cfg.get("preflightForbid", DEFAULT_PREFLIGHT_FORBID))
             ocr_matches = preflight_ocr_matches(recognized, preflight_contains)
+            report["preflight"] = {"passed": all(ocr_matches) and not forbidden, "frame": str(preflight_frame),
+                "ocr": {"contains": preflight_contains, "matches": ocr_matches, "forbidden": forbidden}}
+            require(not forbidden, "preflightForbiddenText", texts=" / ".join(forbidden))
             require(all(ocr_matches), "preflightOCRMissing")
-            report["preflight"] = {"passed": True, "durationMs": int(preflight_seconds * 1000),
-                "ocr": {"contains": preflight_contains, "matches": ocr_matches},
-                "project": str(probe_project), "frame": str(probe_frame)}
-            report["phases"].append("preflightOcrPassed")
-            source = pick_source(run_cli(args.cli, "record", "sources").get("sources", []), source_match)
-            require(source.get("title") == page_title, "preflightTitleChanged")
+            report["phases"].append("preflightPassed")
             if args.preflight_only:
                 report.update({"ok": True, "preflightOnly": True})
                 report["phases"].append("preflightOnlyComplete")
@@ -556,14 +676,18 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 return 0
 
-        run_cli(args.cli, "record", "start", "--source", source["id"])
+        started = run_cli(args.cli, *record_start_arguments(source["id"], attach))
         recording = True
+        if isinstance(started.get("plan"), dict):
+            report["planProjection"] = started["plan"]
+        recorded_status = lambda: active_recording_status(recording_cli)
         time.sleep(0.45)
         report["phases"].append("recording")
         cue_ranges: list[dict[str, Any]] = []
         chapter_rows: list[dict[str, Any]] = []
         zoom_rows: list[dict[str, Any]] = []
         has_recorded_intents = False
+        timed_actions: list[dict[str, Any]] = []
         preopened = True
         for beat_index, beat in enumerate(book["beats"]):
             current_source = pick_source(run_cli(args.cli, "record", "sources").get("sources", []), source_match)
@@ -583,12 +707,23 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                     target = zoom.get("target") or {"x": 0.5, "y": 0.5}
                     point = to_window_point(metrics, source, target["x"] * metrics["innerWidth"], target["y"] * metrics["innerHeight"])
             for index, action in enumerate(beat.get("actions", [])):
-                if action.get("action", action.get("type")) in ("click", "move", "input"):
+                if action.get("action", action.get("type")) in POINTER_ACTIONS:
                     has_recorded_intents = True
-                active_recording_status(recording_cli)
-                run_action(args.cli, space, source, beat, index, action,
+                timed = "atMs" in action
+                # A timed pointer action is measured (and scrolled into view) before the wait, so only
+                # the declaration and the page action remain once its moment arrives.
+                measured = action_point(space, action, source, page_ref) \
+                    if timed and action.get("action", action.get("type")) in POINTER_ACTIONS else None
+                if timed:
+                    wait_until_recorded_ms(action["atMs"], recorded_status)
+                else:
+                    active_recording_status(recording_cli)
+                declared = run_action(args.cli, space, source, beat, index, action,
                     preopened and beat_index == 0 and index == 0, run_cli, page_ref,
-                    ensure_recording_active=lambda: active_recording_status(recording_cli))
+                    ensure_recording_active=lambda: active_recording_status(recording_cli), point=measured)
+                if timed:
+                    timed_actions.append({"beat": beat["id"], "actionIndex": index, "atMs": action["atMs"],
+                        "declaredMs": declared.get("durationSourceMs") if isinstance(declared, dict) else None})
                 if beat_index == 0 and index == 0:
                     preopened = False
             end = active_recording_status(recording_cli)["durationSourceMs"]
@@ -605,6 +740,8 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
                     "transition": zoom.get("transition", "smooth"), "reason": beat.get("subtitle", "") or beat["id"]})
             active_recording_status(recording_cli)
             inject_hud(space, None, page_ref)
+        if attach is not None and "durationMs" in attach:
+            wait_until_recorded_ms(attach["durationMs"], recorded_status)
         stop = run_cli(args.cli, "record", "stop")
         recording = False
         require(stop.get("stoppedBy") == "agent", "recordingStoppedUnexpectedly",
@@ -614,10 +751,22 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         report["project"] = project
         report["recordingDurationMs"] = stop.get("durationMs")
         report["phases"].append("recordingSaved")
+        if attach is not None:
+            # Beat times are take-relative; the clip's recording sits later on the project's source clock.
+            clip = stop.get("screenClip")
+            require(isinstance(clip, dict) and is_nonnegative_number(clip.get("sourceStartMs")), "screenClipMissing")
+            report["screenClip"] = clip
+            # Planned versus declared take-relative times, so the Agent can check alignment without frames.
+            report["timedActions"] = timed_actions
+            for row in zoom_rows:
+                row["sourceStartMs"] += clip["sourceStartMs"]
+                row["sourceEndMs"] += clip["sourceStartMs"]
+            # The voice-over owns the subtitles, chapters and cuts; this take only supplies a picture.
+            cue_ranges, chapter_rows = [], []
         with tempfile.TemporaryDirectory(prefix="oil-studio-playbook-") as temporary:
             temp = Path(temporary)
             pending = False
-            if has_recorded_intents:
+            if has_recorded_intents and attach is None:
                 idle_result = run_cli(args.cli, "idle", project, "--threshold", "1000", "--keep", "350", "--submit", timeout=600)
                 report["idleSubmission"] = idle_result
                 pending |= idle_result.get("autoApplied") is False and bool(idle_result.get("pauses"))
@@ -705,8 +854,12 @@ return { pageTitle: await page.title(), pageUrl: await page.url(), pageLabel: pa
         return 1
     finally:
         try:
-            if stage_host is not None:
-                stage_host.close()
+            try:
+                if bridge is not None:
+                    bridge.close()
+            finally:
+                if stage_host is not None:
+                    stage_host.close()
         finally:
             if previous_sigterm is not None:
                 signal.signal(signal.SIGTERM, previous_sigterm)

@@ -86,10 +86,11 @@ class AgentSkillVersionTests(unittest.TestCase):
         if not app_version.exists():
             return
         app = json.loads(app_version.read_text())["version"]
-        # The next patch release can be prepared before scripts/version.json is bumped.
-        app_parts = tuple(map(int, app.split(".")))
+        # The bundled Skill must work with the app it ships in, test builds included: a minimum above
+        # scripts/version.json made the app report itself as outdated. Raise minAppVersion only after the
+        # version file names the release that ships the features the Skill needs.
         self.assertLessEqual(tuple(map(int, metadata(SKILL / "SKILL.md", "minAppVersion").split("."))),
-                             (app_parts[0], app_parts[1], app_parts[2] + 1))
+                             tuple(map(int, app.split("."))))
 
     def test_version_instructions_use_this_skill_and_app_versions(self):
         for entry in (SKILL / "SKILL.md", SKILL / "en/SKILL.en.md"):

@@ -5,11 +5,13 @@
 ## 目录
 
 - [精剪方案](#精剪方案-plan-validate--plan-submit)
+- [片段范围](#片段范围-clip)
 - [口头禅覆盖检查](#口头禅覆盖检查)
 - [缩放](#方案里的缩放-zooms)
 - [布局](#方案里的布局-layouts)
 - [标题、图片与 B-roll](#方案里的标题图片与-b-roll-overlays)
 - [打码](#方案里的打码-redactions)
+- [录屏片段](#方案里的录屏片段-screenclips)
 - [提交后的返回](#提交后的返回)
 - [字幕修改](#字幕修改-subtitles-apply)
 - [脚本字幕整轨](#脚本字幕整轨-subtitles-apply)
@@ -63,19 +65,50 @@
 
 非 `silence` 类别的普通语义删减若超过 30 秒（30000 ms），校验器会将其标为 `uncheckedByDefault`（默认不勾选）；高置信度（`confidence: "high"`）且提供合法 `keptRange` 的 `abandoned_take` 整段重说上限放宽至 3 分钟（180000 ms）。任何与画面操作重叠却未写 `"screenAction": "redundant"` 及 `"visualAssessment"` 的语义删减仍会标为 `uncheckedByDefault`。对于超长废片（含多段 `pauses` 草案中的 `silence`），保留其中的 `silence` 条目，并将有语音的 `abandoned_take` 标清 `keptRange`、`screenAction: "redundant"` 和 `visualAssessment`，使确认无误的删减默认勾选生效。
 
-精剪先用 `pauses <工程> --out-plan <json>` 取得停顿清理草案，将语义删减追加到同一份 `decisions`。草案的指纹必须与 context 一致；不提前提交清理。`plan preview <方案文件> --index <从 0 开始的条目编号> --out <wav>` 可试听合并全部可执行删减后的接缝，只读取原始麦克风声音，不修改工程。变速、重复或重排时间线不支持。
+精剪优先用 `context <工程> --out <context.json> --out-plan <plan.json>` 一次生成上下文和停顿草案（或按需用 `pauses <工程> --out-plan <json>` 自定义门限与气口），将语义删减追加到同一份 `decisions`。草案的指纹必须与 context 一致；不提前提交清理。`plan validate` / `plan submit` 加 `--compact` 可只返回汇总计数与异常项（`rejected`、`uncheckedByDefault`、带说明项、`cutAdjustments`、`boundaryReviews`），命中的操作保护会在条目的 `matchedActivity` 中标出事件类型（`click`、`mouseUp`、`key`、`screenChange`）与源时间。`plan preview <方案文件> --index <从 0 开始的条目编号> --out <wav>` 可试听合并全部可执行删减后的接缝，只读取原始麦克风声音，不修改工程。变速、重复或重排时间线不支持。
+
+## 片段范围（`clip`）
+
+从视频切片段时，用方案顶层的 `clip` 说明成片只保留哪段源时间，不要用两条 `cut` 剪掉前后：
+
+```json
+{"schemaVersion": 1, "projectFingerprint": "从 context 原样复制", "contextFingerprint": "从 context 原样复制",
+ "clip": {"sourceStartMs": 48180, "sourceEndMs": 120510, "reason": "从获客讲到官网成交，观点完整"}}
+```
+
+- `sourceStartMs` / `sourceEndMs` 是源时间毫秒，取自 context 的词级时间；起点不小于 0，终点不超过最后一个 `slices` 的 `sourceEndMs`。
+- 每份方案最多一个 `clip`，`reason` 必填（一句话说明为什么选这段），不需要 `category` 或 `removedText`；审阅时显示为一项“片段范围”，默认勾选。`clip` 校验不通过时整份方案都不会应用，按错误提示修正后重新提交。
+- 可以和 `decisions` 一起提交，用来顺带删掉片段内的停顿或口误。
 
 ## 口头禅覆盖检查
 
-把每个候选的结论写进 `decisions`：确认可删用 `cut`，明确保留用 `keep`，缺证据用 `review`，都使用源时间和具体 `reason`。整段删减完整覆盖候选时不再单独切一次。不要给提案添加未定义的候选 ID 或审核字段；覆盖报告保存在工程外。
+每个 `fillerCandidates` 候选都必须有明确去向和具体 `reason`。确认可删用 `cut` 写入 `plan.json` 的 `decisions`（被整段重说删减完整覆盖的无需再切）。会约束相邻剪点的 `keep` / `review` 也留在 `decisions`，让 App 在清理时保护这些范围。其余保留与复核记录写入工程外的 `filler-audit.json`。提案只使用已定义的字段。
 
-有 Python 3 时，在 `plan validate` 前运行随 Skill 分发的只读检查器（路径中的 Skill 目录是当前加载的根目录）：
+独立审阅清单格式：
 
-```sh
-python3 -B <Skill目录>/scripts/check_filler_coverage.py --context <当前context.json> --plan <方案.json> --out <新的覆盖报告.json>
+```json
+{
+  "schemaVersion": 1,
+  "projectFingerprint": "从 context 原样复制",
+  "contextFingerprint": "从 context 原样复制",
+  "items": [
+    {"id": "候选id", "decision": "keep", "reason": "句尾自然语气词，保留更通顺"},
+    {"sourceMs": [61200, 61480], "decision": "review", "reason": "与下字连读，需听声确认"}
+  ]
+}
 ```
 
-[检查器](../scripts/check_filler_coverage.py)核对两份指纹、整段范围与词级范围，按源时间并集合计覆盖；只切掉一个词的一部分不算已删除，低置信度 `cut` 不算可执行。退出码 0 表示每项已有去向，1 表示仍有 `unresolved`，2 表示输入/指纹/文件错误。输入失配要重新读取工程，不手工换指纹。报告不覆盖旧文件。
+有 Python 3 时，在 `plan submit` 前运行随 Skill 分发的校验脚本（路径中的 Skill 目录是当前加载的根目录）：
+
+```sh
+python3 -B <Skill目录>/scripts/verify_plan.py --context <当前context.json> --plan <方案.json> --audit <审阅清单.json> --coverage-out <新的覆盖报告.json>
+# 或单独运行覆盖检查：
+python3 -B <Skill目录>/scripts/check_filler_coverage.py --context <当前context.json> --plan <方案.json> --audit <审阅清单.json> --out <新的覆盖报告.json>
+```
+
+[检查器](../scripts/check_filler_coverage.py)核对两份指纹、整段范围与词级范围，按源时间并集合计覆盖；语义删减只切掉一个词的一部分不算已删除，低置信度 `cut` 不算可执行；停顿草案（`category: "silence"`）若仅裁到拉长词的词尾静音且候选已明确标记 `keep` / `review`，不会误判未覆盖，而是在报告里标注 `silenceOverlapIndices` 供核对。退出码 0 表示每项已有去向，1 表示仍有 `unresolved`，2 表示输入/指纹/文件错误。输入失配要重新读取工程，不手工换指纹。报告不覆盖旧文件。
+
+`verify_plan.py` 还会把 `cutAdjustments` 与清单中的保留、复核范围比对。如果 `auditProtectionConflicts` 列出了条目，把它们移回方案的 `decisions`，用源时间填写范围后再核对。出现 `cleanupWarning` 时先修复素材再提交。分别运行覆盖检查和命令行校验时，也要手动核对这两项。
 
 没有 Python 或旧版 context 缺 `fillerCandidates` 时，按现有词级转录逐项建立同样的人工清单，不安装依赖、不把缺失字段当成零候选。无论用哪种方法，都要让每项有去向，再校验提案。覆盖通过不证明语义、接缝或画面判断正确；`review` 仍是未完成的编辑判断。
 
@@ -191,6 +224,26 @@ python3 -B <Skill目录>/scripts/check_filler_coverage.py --context <当前conte
 | `reason` | 新增时必填非空字符串；更新后的合并结果必须有非空 `reason`，已有条目有值时可继承，没有时要在更新中补写。 |
 
 `update` 是局部合并，只传需要改的字段；需要保留或补写有效的时间、区域、样式与非空 `reason`。移动内容要在各自时间段指定并检查对应区域，不要把矩形遮盖描述为对象跟踪。校验通过不代表遮盖已应用：应用后用 `oilstudio frame <工程> --source-ms <毫秒> --text --out <png>` 核对画面与识别文字；若用户需要导出，抽查并播放导出成片，确认遮盖在整个指定区间生效后再汇报完成。敏感内容仍可见时先修正方案并重新校验，不要把未验证的遮盖说成已完成。
+
+## 方案里的录屏片段（`screenClips`）
+
+只用于口播工程（context 的 `voiceOver` 为 true），调整已经录好的录屏片段；新片段只能用 `record start --into` 录。与时间轴上的拖动、裁剪、变速、删除是同一套编辑，一步可撤销。同一片段在一份方案里只能出现一次。
+
+```json
+{"schemaVersion": 1, "projectFingerprint": "…", "contextFingerprint": "…", "screenClips": [
+  {"action": "move", "id": "片段 id", "outputStartMs": 12400, "reason": "让点击落在“点开这篇文章”"},
+  {"action": "trim", "id": "片段 id", "sourceStartMs": 520300},
+  {"action": "speed", "id": "片段 id", "playbackRate": 1.25},
+  {"action": "remove", "id": "片段 id"}
+]}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `move` | `outputStartMs`（片段在成片里开始的时刻）与 `anchorSourceMs`（口播源时刻）二选一；落点与别的片段重叠时覆盖重叠部分。 |
+| `trim` | `sourceStartMs` / `sourceEndMs` 至少一个，取 context 里这个片段的源时间范围之内（是这段录制自己的源时间，不是口播的）。 |
+| `speed` | `playbackRate` 与切片变速范围相同；变长时夹到下一片段起点。 |
+| `remove` | 只删片段，不删录制文件。 |
 
 ## 提交后的返回
 

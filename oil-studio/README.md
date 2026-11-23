@@ -4,7 +4,7 @@ For English instructions, start at [en/SKILL.en.md](en/SKILL.en.md). For Chinese
 
 ## Data, permissions, and boundaries
 
-Requires an Apple silicon Mac running macOS 15 or later and an Oil Studio recording project (`.oilstudio`). Ordinary MP4/MOV editing does not use this Skill. The agent accesses projects exclusively through `oilstudio` and never reads or writes files inside a `.oilstudio` package directly; existing projects from other recording apps are imported read-only first without altering the original. Chapter progress bars (top or bottom) apply immediately and can be edited or undone in the app.
+Requires an Apple silicon Mac running macOS 15 or later and an Oil Studio recording project (`.oilstudio`). An existing MP4/MOV/M4V can be imported as a new project first; quick edits of videos the user doesn't want in Oil Studio don't use this Skill. The agent accesses projects exclusively through `oilstudio` and never reads or writes files inside a `.oilstudio` package directly; existing projects from other recording apps are imported read-only first without altering the original. Chapter progress bars (top or bottom) apply immediately and can be edited or undone in the app.
 
 Recording permissions are granted by the user in macOS and Oil Studio, and only capture the window or region specified. On-device Whisper transcription never uploads audio; Alibaba Cloud Bailian uploads audio to the selected region only when configured and chosen. Initial captions are generated and saved via `subtitles generate` (undoable); `transcribe` prepares the transcript cache only. Project settings are managed via `settings schema/get/apply`, and exports support MP4, GIF, and SRT. Editing and zoom proposals await user confirmation in the app by default (autonomous agent recordings or projects with auto-apply enabled apply immediately and remain undoable with ⌘Z).
 
@@ -22,7 +22,7 @@ Recording permissions are granted by the user in macOS and Oil Studio, and only 
 
 ## 安装与配置
 
-在 Oil Studio 的「设置 › AI Agent」中安装 Agent 支持，再运行 `oilstudio status` 检查命令行与 Skill。App 会把两种语言一起分发，无需分别安装。需要更新时重新打开 App；不覆盖用户自行创建的同名 Skill。
+官网版在 Oil Studio 的「设置 › AI Agent」中安装 Agent 支持；Mac App Store 版运行 `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`。装好后运行 `oilstudio status` 检查命令行与 Skill。App 会把两种语言一起分发，无需分别安装。需要更新时重新打开 App；不覆盖用户自行创建的同名 Skill。
 
 在 App 的「设置 › 通用」选择界面语言，重启后生效；CLI 默认读取同一选择。临时覆盖只用 `--lang`，不写偏好。音频语言默认跟随界面语言，也可在生成字幕时单独选择，或给 `transcribe` 指定 `--locale`。
 
@@ -30,6 +30,6 @@ Recording permissions are granted by the user in macOS and Oil Studio, and only 
 
 ## 数据、权限与边界
 
-适用于 macOS 15 及以上的 Apple 芯片 Mac 和 Oil Studio 录屏工程。普通 MP4/MOV 的剪辑或加字幕不走这个 Skill。Agent 只通过 `oilstudio` 访问工程，不直接读写包内文件；旧录屏工程先只读导入，原件不改动。章节进度支持顶部和底部，AI 写入后直接生效，可在 App 中修改或删除。
+适用于 macOS 15 及以上的 Apple 芯片 Mac 和 Oil Studio 录屏工程。现成的 MP4/MOV/M4V 可以先导入成新工程再剪；不想放进 Oil Studio 的普通视频快剪不走这个 Skill。Agent 只通过 `oilstudio` 访问工程，不直接读写包内文件；旧录屏工程先只读导入，原件不改动。章节进度支持顶部和底部，AI 写入后直接生效，可在 App 中修改或删除。
 
 录制权限由用户在系统和 App 中授予，只录用户指定的测试或演示窗口。本机识别不上传音频；自动模式选中已配置的百炼或明确指定百炼时，会上传到所选地区。初始字幕由 `subtitles generate` 经 App 生成、保存并可撤销，`transcribe` 仅准备转录缓存。工程配置通过 `settings schema/get/apply` 操作，导出支持 MP4/GIF 与工程已有导出选项。其他修改通过提案提交；普通工程默认等待用户确认，Agent 自己录的工程或用户明确开启自动应用的工程直接生效并可撤销。

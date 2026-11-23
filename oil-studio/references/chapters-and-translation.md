@@ -12,7 +12,8 @@
 - 首章使用成片中第一条可见字幕的 `fromCue` 时，会自动吸附到成片 0:00，包括首句稍晚开始或句首被剪掉的情况。使用 `sourceStartMs` 时仍须指定当前成片开头对应的源时间；相邻章节边界在成片上至少相隔 1 毫秒。
 - 标题用 2–8 个中文字或简短英文短语，说这一段讲什么，不用"第一部分"这类序号，不加标点。较窄的章节用更短的标题（2–4 个字），避免在进度条上被截断。
 - 章节起点放在新话题第一句的开头：用该句的 `id` 写 `fromCue`，或写它的 `sourceStartMs`。
-- `chapters get` 返回章节、`outputDurationMs`、`enabled` 和 `position`。仅在「生成字幕」顺带自动补章节时，才只对严格超过 180000 毫秒且尚无章节的成片自动生成；用户明确要求添加、修改或重划章节时，不限时长、不吞章节。
+- `chapters get` 和 `chapters apply` 都会返回 `warnings`，有超宽项时还会返回 `chapterWidthWarnings`，其中 `suggestedMaxCharacters` 是建议字数。提交回执为 `autoApplied: true` 时，可直接缩短对应标题并重新提交。提案仍在排队时，先把超宽标题和缩短建议告诉用户，或等提案处理完再提交修改。
+- `chapters get` 返回章节、`outputDurationMs`、`enabled`、`position` 和 `warnings`。仅在「生成字幕」顺带自动补章节时，才只对严格超过 180000 毫秒且尚无章节的成片自动生成；用户明确要求添加、修改或重划章节时，不限时长、不吞章节。
 - 目标工程在前台打开且没有进行中的审阅时，`chapters apply` 校验后自动整组替换章节并开启进度条；应用后可以撤销，也可以在 App 中改标题或删除章节。调用后仍须检查 JSON 响应中的 `autoApplied` 和 `pendingReason`：有审阅进行中或工程未在前台打开时，提案可能排队等待。
 - 位置是独立外观设置：用 `settings get/apply` 修改 `subtitles.chapterProgressPosition`（`bottom` / `top`），不要写进章节文件。
 

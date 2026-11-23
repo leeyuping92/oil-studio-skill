@@ -51,6 +51,7 @@ The output cursor comes from your reports, not the real mouse. Before each click
 | `NO_RECORDING` | Run `oilstudio record status` and inspect `last`. |
 | `SOURCE_NOT_FOUND` | The window closed or changed; rerun `record sources`. |
 | `APP_REQUIRED` | Run `open -a "Oil Studio"` and retry once. |
+| `PERMISSION_REQUIRED` | Report `message` and `hint`, then stop. For missing access such as screen recording, ask the user to grant it on the app’s permissions page; if a terminal or AI sandbox blocked local access, ask the user to allow running `oilstudio` outside the sandbox instead of reopening the app; if it says the app was moved or deleted, ask the user to quit Oil Studio and open it again from the Applications folder. |
 
 If your control tool fails and cannot continue, run `oilstudio record stop` or `--discard`; never leave recording running.
 
@@ -64,9 +65,37 @@ If your control tool fails and cannot continue, run `oilstudio record stop` or `
 
 ## Web playbooks
 
-Both modes require `node`. The `stage-window` mode uses macOS WebKit and `swiftc` from the Xcode Command Line Tools without requiring any third-party browser; when no browser host is explicitly specified and `ego-browser` is not installed, the script automatically uses `stage-window`. Check the selected mode’s dependencies before recording; if any are missing, ask the user to install them before continuing.
+Use a playbook for longer web demonstrations that need optional beat captions, an on-screen analysis card, or zooms aligned to the same source-time range. Before recording, the script opens the first URL in the selected browser host, then asks Oil Studio to select and record the single matching window. Oil Studio must be running and the user must grant recording access. Microphone, camera, and system audio stay off. A run starts one long-lived browser automation process, so steps run with almost no scheduling delay.
 
-Use a playbook for longer web demonstrations that need optional beat captions, an on-screen analysis card, or zooms aligned to the same source-time range. Before recording, the script opens the first URL through the browser automation runtime, then asks Oil Studio to select and record the single matching browser window. Oil Studio must be running and the user must grant recording access. Microphone, camera, and system audio stay off.
+### Browser hosts
+
+Nothing from automation may appear in the video: the control bar an agent browser draws while it drives the page, a border around the page, action captions next to the cursor, or browser prompts such as a translation offer. Only `browser.host` and `browser.cdpURL` choose the host; what happens to be installed doesn’t:
+
+| Host | When | Notes |
+| --- | --- | --- |
+| `stage-window` (default) | Public pages that need no sign-in | A borderless macOS WebKit window with no overlays. It has a single page and can’t switch tabs. Requires `node` and `swiftc` from the Xcode Command Line Tools. |
+| `cdp` | A signed-in session, several tabs, or scrolling inside a cross-origin embedded page | Connects through the debugging port to a Chromium-based browser the user started (Chrome, Edge, Brave, and so on) and drives it with native mouse and wheel events, with no overlays. Set `"browser": {"cdpURL": "http://127.0.0.1:9222"}`. Requires Node.js 22 or later. |
+| `browser` / `ego-browser` | Only when the user asks for it | An agent browser task space. Its control bar and action captions stay visible while it’s in control, so the pre-recording check stops it and it usually can’t record. |
+
+The user starts the cdp browser, or you run it with their approval. Use a dedicated profile folder: sign in once and reuse it, without touching the everyday browser profile:
+
+```sh
+open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir="$HOME/Library/Application Support/Oil Studio Demo Browser"
+```
+
+For another Chromium browser, change the app name. `browser.cdpURL` accepts only local addresses (`127.0.0.1`, `localhost`, or `[::1]`). If the first `open` address is already open in a tab, such as a page the user just signed in to, the script uses that tab without reloading it; the same applies to `browser.tabs`. The script never closes the user’s browser or tabs.
+
+### Pre-recording check
+
+For real browser hosts (`cdp`, `browser`), the script takes a window snapshot before recording by default (`oilstudio record screenshot --text`, which creates no project and doesn’t change the project open in the editor) and reads the text in the part of the window that will appear in the video:
+
+- If it finds text from the default blocklist (an agent browser’s control bar and action captions, a translation prompt, “Chrome is being controlled by automated test software”, and so on), it stops without recording; the report’s `preflight.ocr.forbidden` lists the matches. Close the overlay or change hosts, then run again.
+- `browser.preflightForbid` replaces the default blocklist (`[]` blocks nothing). `browser.preflightContains` lists text that must appear, to confirm the right page is on screen.
+- `browser.preflight: false` turns the check off; the isolated stage skips it unless set to `true`. A positive legacy `preflightSeconds` turns it on. `--preflight-only` runs only this check.
+
+### Commands and format
+
+For the cdp host, start the browser as described above first. Check the selected host’s dependencies before recording; if any are missing, ask the user to install them before continuing.
 
 ```sh
 python3 -B <Skill-directory>/scripts/record_playbook.py \
@@ -81,19 +110,23 @@ The JSON has a `source`, optional `settings` using the `settings apply` patch sh
 
 Select the source with `sourceId`, `app`, or `title`; when several are present, all conditions must match exactly one window. `app` uses a case-insensitive full-name match. `title` defaults to a case-insensitive substring match; set `exactTitle:true` for an exact match. The script reads the opened page's actual title and verifies it against the native capture window. A `sourceId`-only source needs no separate `title`, but the actual page title still protects against selecting the wrong window.
 
-Optional `browser.host` values are `browser`, `ego-browser`, and `stage-window`. When the host is unspecified, a failed browser window match can fall back to the stage; an explicit browser host or `browser.page: user` prevents fallback. With an explicit `stage-window` host, do not set `source.sourceId`: the new stage receives a new window ID, so validation rejects this combination before starting the stage. Use `source.title` or `app` instead. `browser.scratchDir` chooses the parent directory for temporary files. Each run creates its own directory under the system temporary directory or that parent; never reuse a fixed working directory. The isolated stage's local control interface requires a random session token for each run.
+See [Browser hosts](#browser-hosts) for `browser.host` and `browser.cdpURL`. `browser.page` applies only to the `browser` host (a page label in the task space, or `user`). The isolated stage opens a new window each time, so it can’t use `source.sourceId`; use `source.title` or `app` instead. `sourceId` suits a browser window that’s already open under the cdp host. `browser.scratchDir` chooses the parent directory for temporary files. Each run creates its own directory under the system temporary directory or that parent; never reuse a fixed working directory. The long-lived process and the isolated stage’s local control interface use a random session token for each run and listen only on this Mac.
 
-`browser.preflightSeconds` accepts 0–10. A positive value records a short probe and extracts OCR text from a frame at source time `min(500, max(0, duration in milliseconds - 1))`, keeping the frame within the actual take. `browser.preflightContains` is an optional string array; when present, every string must occur in the OCR text, ignoring case and whitespace. Without it, preflight makes no assumptions about page-specific text. `--preflight-only` stops after this probe and requires a positive `preflightSeconds`.
+`browser.tabs` lists other tabs to open before recording: `[{"id": "admin", "url": "https://…"}]`, where `id` can’t be `main` (the page of the first `open`). Only the cdp and `browser` hosts support tabs. During the take, `{"action": "switchTab", "tab": "admin"}` switches to a tab and `"tab": "main"` switches back. Switching is instant and doesn’t reload the page; the HUD moves to the tab on screen.
 
 Command help, validation messages, and runtime errors use `OILSTUDIO_LANGUAGE` (`zh-Hans` or `en`) when set, then the system locale otherwise, with English as the fallback for unrecognized locales. JSON field names do not change with language.
 
 `hud` accepts `badge`, `title`, `detail`, `pills:[{label,value,color?}]`, and `position: top-right|bottom-left|top-left`. The floating card uses an isolated Shadow DOM and `pointer-events:none`, then is removed after recording or on failure. `zoom` accepts `level`, `transition`, and either `selector` or `target:{x,y}`. A selector uses the center of a visible element; target coordinates are 0–1 fractions of the web viewport. The script includes browser chrome offsets measured from `outerWidth - innerWidth` and `outerHeight - innerHeight` when converting to full-window normalized coordinates. The zoom range matches its beat and must satisfy the 600 ms minimum.
 
-Supported actions are `open:{url}`, `click` / `move` with `selector` or window-relative `fraction:{u,v}`, `scroll` with `y` or `selector` and optional `durationMs`, `input` with `selector,value` or `selector,from,to,durationMs`, `press` with `key` (such as `Enter`, `Escape`, `Tab`, or `Meta+k`) and an optional `selector`, `eval:{script}`, `wait:{ms}`, and `mark`. Selectors are CSS selectors in the page DOM. Before a selector click or hover, the script measures its center, reports the point with `record click` or `record move`, then dispatches the real page action. Explicit fractions use the full captured window and are converted to viewport coordinates. Scroll and numeric input transitions are animated in the page.
+Supported actions are `open:{url}`, `click` / `move` with `selector` or window-relative `fraction:{u,v}`, `scroll` with `y` or `selector` and optional `durationMs`, `wheel` with `selector` or `fraction:{u,v}`, pixel `deltaY` / `deltaX` (at least one nonzero), and optional `durationMs` (default 600), `input` with `selector,value` or `selector,from,to,durationMs`, `press` with `key` (such as `Enter`, `Escape`, `Tab`, or `Meta+k`) and an optional `selector`, `switchTab:{tab}`, `eval:{script}`, `wait:{ms}`, and `mark`. Selectors are CSS selectors in the page DOM. Before a selector click or hover, the script measures its center, reports the point with `record click` or `record move`, then dispatches the real page action; `wheel` first moves the reported cursor to the scroll point with `record move`. Actions send no caption text to the browser, so an agent browser shows no action caption next to its cursor. Explicit fractions use the full captured window and are converted to viewport coordinates. Scroll and numeric input transitions are animated in the page.
+
+`scroll` reaches only scroll containers in the top-level page. For a cross-origin embedded page, such as a live mini-program preview or a third-party widget, use `wheel` positioned over that embedded area. Under the cdp and `browser` hosts, `wheel` sends real wheel events that reach cross-origin frames; the isolated stage falls back to scrolling the nearest scrollable container under that point.
+
+**Adding to a voice-over (`attach`).** To add a web segment to a voice-over project, add top-level `"attach": {"project": "<voice-over project>", "atOutputMs": <output ms where the segment starts>, "durationMs": <optional segment length>, "plan": <optional unsubmitted cut plan>, "replaceUntilOutputMs": <optional output ms where a re-recorded segment ends>}`. The script records with `record start --into … --at-output-ms …` (adding `--plan` with `plan`, so `atOutputMs` and word times are on the plan’s cut timeline, and `--replace-until-output-ms` with `replaceUntilOutputMs`, which first clears older clips in the segment; with `plan` and `durationMs` but no `replaceUntilOutputMs`, the end defaults to `atOutputMs + durationMs`), and the stopped take is attached to the voice-over directly. The report’s `planProjection` shows the converted times. It doesn’t submit idle removal, captions, chapters, or transitions, and it refuses `--export` (export the voice-over project after every segment is in place). Actions can carry `atMs`: how many milliseconds after recording starts the step runs. The script waits on the recording clock until then, so a click can land when it’s mentioned (`atMs = word outputStartMs − atOutputMs`). The opening `open` of the first beat runs before recording starts and can’t have `atMs`. With `durationMs`, the script keeps recording after the last step until that length, then stops. Zooms are submitted at the take’s source time in the project. A click, hover, or input with `atMs` scrolls to its target and measures it before the wait, then declares and performs the step as soon as the moment arrives, so the page must be settled by then (add a `wait` first while images load lazily or an animation runs). The report’s `timedActions` lists each step’s planned `atMs` and the `declaredMs` it actually got, both in milliseconds since the take started. If they differ by more than about 100 ms, adjust `atMs` and record that segment again.
 
 The script applies optional settings, builds a fingerprinted zoom proposal and runs `plan validate` / `plan submit`, and leaves captions off by default (it calls `subtitles apply` and burns captions on `--export` only when the user explicitly requests captions and `settings.subtitles.enabled` is set to `true` alongside nonempty beat `subtitle` text; otherwise `--export` uses `--subtitles none`). If any change was not directly applied, it records the pending result and skips export. On failure, it attempts to discard an unfinished take. `--dry-run` validates the playbook without opening a browser or starting recording; `--out-report` writes source matching, cue ranges, proposals, and export status.
 
-`PERMISSION_REQUIRED` means recording or Accessibility permission is missing. Ambiguous windows, occluded targets, and rejected geometry changes return `VALIDATION_FAILED`.
+`PERMISSION_REQUIRED` means recording or Accessibility permission is missing, or the app needs to be reopened (see the error table above). Ambiguous windows, occluded targets, and rejected geometry changes return `VALIDATION_FAILED`.
 
 `--inspect <url>` opens an isolated stage, waits for the page to settle, and returns viewport, scroll container, and interactive element details with selectors and positions; no playbook is needed. `--rehearse` runs actions in order and checks zoom selectors in the stage without recording. Page actions still take effect; use it only on pages where those actions are permitted.
 

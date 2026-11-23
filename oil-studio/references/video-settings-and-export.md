@@ -1,6 +1,6 @@
 # 工程配置与导出
 
-用于调整录屏工程的画面、声音、字幕样式和导出选项。只通过命令行操作，不直接改工程包。
+用于调整录屏工程的画面、声音、字幕样式、水印和导出选项。只通过命令行操作，不直接改工程包。
 
 ## 读取与修改
 
@@ -19,7 +19,7 @@ oilstudio settings apply <工程> <修改.json> --review
   "settings": {
     "style": {"backdropMode": "none", "pointerScale": 1.5},
     "subtitles": {"fontScale": 1.1},
-    "export": {"quality": "minimal", "hevc": true}
+    "export": {"quality": "minimal", "videoCodec": "av1"}
   }
 }
 ```
@@ -31,9 +31,10 @@ oilstudio settings apply <工程> <修改.json> --review
 - `cameraAutomation`、`voice`、`beauty`、`avatar`、`music`：摄像头自动处理、人声增强、美颜、头像、背景音乐。
 - `subtitles`：语言、样式、位置、大小、底色、章节进度。`chapterProgressEnabled` 控制显示，`chapterProgressPosition` 为 `bottom` / `top`；不改字幕正文或章节内容，正文走 `subtitles apply`，章节走 `chapters apply`。
 - `transitions`：剪切点效果和成片时间毫秒的 `spanMs`。
-- `export`：保存 MP4/GIF、分辨率、帧率、质量、HEVC、字幕、SRT、GIF 宽度与帧率选项。
+- `export`：保存 MP4/GIF、分辨率、帧率、质量、视频编码 `videoCodec`（`h264` / `hevc` / `av1`，与旧布尔项 `hevc` 自动同步）、字幕、SRT、GIF 宽度与帧率选项。
+- `watermark`：成片角落的品牌水印。`enabled` 是开关；`style` 为 `translucent`（半透）、`dark`（深色）、`light`（浅色）、`minimal`（极简）；`text` 最多 60 个字符，空字符串表示只显示图标；`showLogo` 控制图标，`italic` 控制斜体；`position` 为 `bottom-right`、`bottom-left`、`top-right`、`top-left`；`scale`、`opacity` 的范围以 schema 为准。用户只说“加水印”时只提交 `{"watermark": {"enabled": true}}`，沿用工程现有的样式和文字；去掉水印提交 `false`。换成自己的图标图片只能在 App 的「画面」检查器里操作，命令行做不到，告诉用户在哪里换。
 
-媒体选项引用已有素材：背景图片须为工程内的相对路径；音乐 `id` 是已有内置曲目 ID 或工程已导入的音乐文件名，头像 `packID` 是已安装的素材包 ID。可沿用 `get` 返回的引用；不要编造 ID，也不把任意磁盘路径当素材。此接口不导入素材、不读取或修改云端密钥、录制偏好或工程的 AI 自动应用开关。
+媒体选项引用已有素材：背景图片须为工程内的相对路径；音乐 `id` 是已有内置曲目 ID 或工程已导入的音乐文件名，头像 `packID` 可通过 `oilstudio avatar list` 查询，同时返回下载状态。导出会下载工程用到的头像并报告进度。可沿用 `get` 返回的引用；不要编造 ID，也不把任意磁盘路径当素材。此接口不导入素材、不读取或修改云端密钥、录制偏好或工程的 AI 自动应用开关。
 
 提案按分组确认，遵循工程现有直接生效开关；`--review` 强制先确认。`autoApplied: false` 时等待 `proposal status <id> --wait`，不能据此说已修改。若返回 `changed: false`，说明没有差异，无需等待提案。生效后再 `settings get` 回读具体值，确认后才能导出；⌘Z 可撤销。App 未运行时会排队，不直接写工程。
 
@@ -41,17 +42,19 @@ oilstudio settings apply <工程> <修改.json> --review
 
 ```sh
 oilstudio export <工程> --out <成片.mp4>
-oilstudio export <工程> --out <小体积.mp4> --quality minimal --codec hevc --no-srt
+oilstudio export <工程> --out <小体积.mp4> --quality minimal --codec av1 --no-srt
 oilstudio export <工程> --out <预览.gif> --gif-width 640 --gif-fps 15 --no-srt
 oilstudio export <工程> --out <片段.mp4> --output-from-ms 1000 --output-to-ms 6000
 ```
 
 未指定的参数沿用工程已保存的导出设置。命令行参数只作用于本次导出，不修改工程选项。格式由输出扩展名决定，也可用 `--format mp4|gif`，两者必须一致。
 
-MP4 可指定 `--quality minimal|compact|standard|high`、`--codec h264|hevc`、`--resolution 720p|1080p|1440p|2160p`、`--fps <整数>`。`minimal` 是极小档，清晰度和体积需取舍；HEVC 不改变设定的分辨率与帧率，部分旧设备或软件可能不支持。当前不支持 AV1、VP9 或手填 Mbps，不编造这些参数。
+MP4 可指定 `--quality minimal|compact|standard|high`、`--codec h264|hevc|av1`、`--resolution 720p|1080p|1440p|2160p`、`--fps <整数>`。默认编码 `h264` 兼容性最广；`hevc` 同画质体积小约四成且使用硬件编码；`av1` 同画质体积最小（适合视频平台与现代浏览器），使用 CPU 编码故导出较慢，较早款 Mac 的自带播放器可能无法直接打开。`minimal` 是极小档，清晰度和体积需取舍。当前不支持 VP9 或手填 Mbps，不编造这些参数。
 
 GIF 使用 `--gif-width <像素>`、`--gif-fps <帧率>`；不接受 MP4 的质量、编码、分辨率参数，也不含音频。`--fps` 可作 GIF 帧率别名，优先 `--gif-fps`。长度和尺寸仍受 App 的现有导出限制。
 
 `--subtitles burn|none` 控制画面字幕，`--srt` / `--no-srt` 控制是否同时输出 SRT；不传则沿用工程选项。明确要求烧录或 SRT 而字幕不存在时，先按主入口生成字幕。`--output-from-ms` / `--output-to-ms` 是**成片时间**的起止毫秒，左闭右开，不是源素材时间；SRT 会裁到这个范围并从 0 计时。只导出部分时不会改工程时间线。
 
-目标已存在时按用户已有覆盖授权处理，未获授权则询问；带 `--overwrite` 才会覆盖。导出需满足 App 的授权要求，不能绕过。最终回执包含 `path`、`format`、`width`、`height`、`fps`、`quality`、`codec`、`durationMs`，另有实际导出的 `srt` 路径；GIF 的 `codec` 为 null。完成前不宣称文件已导出。
+目标已存在时按用户已有覆盖授权处理，未获授权则询问；带 `--overwrite` 才会覆盖。导出前先确认章节进度条无区段宽度告警（`chapters get` 的 `warnings` 为空），避免导出后标题被截断。导出需满足 App 的授权要求，不能绕过。最终回执包含 `path`、`format`、`width`、`height`、`fps`、`quality`、`codec`、`durationMs`、`warnings`，另有实际导出的 `srt` 路径；GIF 的 `codec` 为 null。完成前不宣称文件已导出。
+
+需要不含背景、摄像头/头像、字幕和缩放的原始录屏干净帧用作封面或配图素材时，对含屏幕轨的工程运行 `oilstudio frame <工程> --source-ms <毫秒> --zoom none --out <路径.png>`。

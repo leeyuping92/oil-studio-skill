@@ -45,6 +45,8 @@ Proofread this project’s captions, translate them into English, and export an 
 
 **Recommended: install from the app.** In Oil Studio, open Settings › AI Agent and click Install. The app installs the Skill and the `oilstudio` command-line tool, and keeps both up to date with the app.
 
+**Mac App Store edition:** run `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`. It installs the command-line tool and Skill that match your Oil Studio version. Run it again after Oil Studio updates. See [studio.oiloil.org/en/agent](https://studio.oiloil.org/en/agent/).
+
 **Or install with the Skills CLI (`skills.sh`):**
 
 ```sh

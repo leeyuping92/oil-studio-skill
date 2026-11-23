@@ -29,10 +29,10 @@ If any answer is uncertain, retain the passage or mark it `review`.
 
 | Category | Decision |
 | --- | --- |
-| `abandoned_take` | The later take clearly repeats the same point and covers all earlier information. Remove the earlier take and identify the retained utterances in `keptRange`. |
+| `abandoned_take` | The later take clearly repeats the same point and covers all earlier information. Remove the earlier take and identify the retained utterances in `keptRange`. In Compact style, removing a redundant later restatement of an already clear earlier point also uses `abandoned_take`, with `keptRange` pointing to the retained earlier utterances (any non-overlapping range is accepted). |
 | `false_start` | An unfinished sentence is abandoned and immediately restarted differently. |
 | `slip` | An immediate self-correction, such as “three—no, four.” Remove the wrong part and correction words; keep the corrected fact. |
-| `filler` | Independently removable nonsemantic hesitations such as 呃、嗯、um、uh, or unrelated chatter and process talk. Follow the candidate review below. |
+| `filler` | Independently removable nonsemantic hesitations such as 呃、嗯、um、uh, or unrelated chatter, detours, and process talk. Follow the candidate review below. |
 
 Pauses, similar wording, shared keywords, or sentence length do not prove a retake. Handle silence with pause cleanup.
 

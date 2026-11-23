@@ -5,11 +5,13 @@ Return to [SKILL.md](../SKILL.en.md). Validate cut, zoom, layout, overlay, and r
 ## Contents
 
 - [Cut plan](#cut-plan-plan-validate--plan-submit)
+- [Clip range](#clip-range-clip)
 - [Filler coverage check](#filler-coverage-check)
 - [Zooms](#zooms-zooms)
 - [Titles, images, and B-roll](#titles-images-and-b-roll-overlays)
 - [Redactions](#redactions-redactions)
 - [Layouts](#layouts-layouts)
+- [Screen clips](#screen-clips-screenclips)
 - [Submission result](#submission-result)
 - [Caption edits](#caption-edits-subtitles-apply)
 - [Whole-track captions](#whole-track-captions-subtitles-apply)
@@ -63,19 +65,50 @@ Each decision uses either `range` or `sourceMs`, never both. Never use output ti
 
 Non-`silence` semantic cuts longer than 30 seconds (30000 ms) become `uncheckedByDefault`, except high-confidence (`confidence: "high"`) `abandoned_take` retakes with a valid `keptRange`, which stay checked by default up to 3 minutes (180000 ms). Any semantic cut overlapping screen operations without `"screenAction": "redundant"` and a nonempty `"visualAssessment"` also becomes `uncheckedByDefault`.
 
-Start fine-cut plans with `pauses <project> --out-plan <json>` and append semantic decisions. Context and draft fingerprints must match. Do not apply cleanup separately first. `plan preview <plan> --index <zero-based-index> --out <wav>` previews joins with all applicable cuts, reading only original microphone audio and changing nothing. Speed changes, repeats, and reordered timelines are unsupported.
+Start fine-cut plans with `context <project> --out <context.json> --out-plan <plan.json>` (or `pauses <project> --out-plan <json>` when overriding threshold/breath) and append semantic decisions. Context and draft fingerprints must match. Do not apply cleanup separately first. Pass `--compact` to `plan validate` or `plan submit` to return summary counts plus only non-accepted or annotated items (`rejected`, `uncheckedByDefault`, `cutAdjustments`, `boundaryReviews`), and inspect `matchedActivity` on protected cuts to see the exact event kind (`click`, `mouseUp`, `key`, `screenChange`) and source time. `plan preview <plan> --index <zero-based-index> --out <wav>` previews joins with all applicable cuts, reading only original microphone audio and changing nothing. Speed changes, repeats, and reordered timelines are unsupported.
+
+## Clip range (`clip`)
+
+When cutting a clip from a video, use the top-level `clip` to say which source range the output keeps. Don't remove the parts before and after with two `cut` decisions:
+
+```json
+{"schemaVersion": 1, "projectFingerprint": "copied from context", "contextFingerprint": "copied from context",
+ "clip": {"sourceStartMs": 48180, "sourceEndMs": 120510, "reason": "Covers customer acquisition through closing a sale on the website"}}
+```
+
+- `sourceStartMs` and `sourceEndMs` are source times in milliseconds, taken from word timings in context. The start is at least 0 and the end is at most the last `slices` item's `sourceEndMs`.
+- A plan has at most one `clip`. `reason` is required (one sentence on why this range was chosen); `category` and `removedText` aren't needed. During review it appears as a single "Clip Range" item that's checked by default. If the `clip` fails validation, nothing in the plan is applied; fix it as the error describes and submit again.
+- It can be submitted together with `decisions` to also remove pauses or slips inside the clip.
 
 ## Filler coverage check
 
-Record every candidate in `decisions` as `cut`, `keep`, or `review`, with source bounds and a specific `reason`. A fully covering passage cut needs no duplicate word cut. Do not invent candidate IDs or audit fields in the proposal schema; save coverage reports outside the project.
+Every `fillerCandidates` entry must have an explicit outcome and a specific `reason`. Put confirmed cuts in `plan.json` under `decisions` (a fully covering passage cut needs no duplicate word cut). Keep `keep` / `review` decisions that protect adjacent cut boundaries in `decisions` so the app can protect those ranges during cleanup. Record the remaining retained or review items in `filler-audit.json` outside the project. Use only fields defined by the proposal schema.
 
-When Python 3 is available, run the shipped read-only checker before `plan validate`. The skill directory is the loaded package root, one level above `en/`:
+Audit manifest format:
 
-```sh
-python3 -B <skill-directory>/scripts/check_filler_coverage.py --context <current-context.json> --plan <plan.json> --out <new-coverage-report.json>
+```json
+{
+  "schemaVersion": 1,
+  "projectFingerprint": "copy exactly from context",
+  "contextFingerprint": "copy exactly from context",
+  "items": [
+    {"id": "candidate-id", "decision": "keep", "reason": "Natural sentence-ending particle; removing sounds abrupt"},
+    {"sourceMs": [61200, 61480], "decision": "review", "reason": "Coarticulated with the next word; needs audio check"}
+  ]
+}
 ```
 
-The [checker](../../scripts/check_filler_coverage.py) verifies both fingerprints, resolves utterance and word ranges, and checks their union in source time. Partially cutting a word does not count as removal; low-confidence cuts are not executable. Exit 0 means each candidate is accounted for, 1 means `unresolved` candidates remain, and 2 means an input/fingerprint/file error. Fetch fresh data on mismatch rather than changing fingerprints manually. Reports never overwrite existing files.
+When Python 3 is available, run the shipped verification script before `plan submit`. The skill directory is the loaded package root, one level above `en/`:
+
+```sh
+python3 -B <skill-directory>/scripts/verify_plan.py --context <current-context.json> --plan <plan.json> --audit <filler-audit.json> --coverage-out <new-coverage-report.json>
+# Or run coverage checking alone:
+python3 -B <skill-directory>/scripts/check_filler_coverage.py --context <current-context.json> --plan <plan.json> --audit <filler-audit.json> --out <new-coverage-report.json>
+```
+
+The [checker](../../scripts/check_filler_coverage.py) verifies both fingerprints, resolves utterance and word ranges, and checks their union in source time. Partially cutting a word with a semantic cut does not count as removal; low-confidence cuts are not executable. If a `silence` cut from pause cleanup clips only the silent tail of a stretched filler word that is explicitly marked `keep` or `review`, coverage passes and annotates `silenceOverlapIndices` for inspection instead of blocking. Exit 0 means each candidate is accounted for, 1 means `unresolved` candidates remain, and 2 means an input/fingerprint/file error. Fetch fresh data on mismatch rather than changing fingerprints manually. Reports never overwrite existing files.
+
+`verify_plan.py` also compares `cutAdjustments` with keep and review ranges in the audit. If it reports `auditProtectionConflicts`, move those entries into the plan's `decisions` using source-time ranges and verify again. If validation returns a `cleanupWarning`, fix the media before submitting. When running coverage and validation separately, check both conditions manually.
 
 Without Python, or on older contexts lacking `fillerCandidates`, manually account for existing timed words instead. Do not install dependencies or treat a missing field as zero candidates. After all candidates have an outcome, validate the plan normally. Coverage does not prove meaning, sound quality, or visual safety; `review` is still outstanding editorial work.
 
@@ -191,6 +224,26 @@ Only for projects with a camera. This is the sole proposal section using **pre-s
 | `type` | `both`, `screen`, `camera`, `side-by-side`. |
 | `transitionDuration` | 0.3, 0.5, or 0.8 seconds. |
 | `outputStartMs` / `outputEndMs` | At least 600 milliseconds apart; layout segments cannot overlap. |
+
+## Screen clips (`screenClips`)
+
+Only for voice-over projects (`voiceOver` is true in context). These entries adjust screen clips that are already recorded; record new clips with `record start --into`. They are the same edits as dragging, trimming, changing speed, or deleting on the timeline, and undo in one step. Each clip can appear only once per plan.
+
+```json
+{"schemaVersion": 1, "projectFingerprint": "…", "contextFingerprint": "…", "screenClips": [
+  {"action": "move", "id": "clip id", "outputStartMs": 12400, "reason": "Land the click on “open this article”"},
+  {"action": "trim", "id": "clip id", "sourceStartMs": 520300},
+  {"action": "speed", "id": "clip id", "playbackRate": 1.25},
+  {"action": "remove", "id": "clip id"}
+]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `move` | Either `outputStartMs` (where the clip starts in the video) or `anchorSourceMs` (a voice-over source time). Where it lands over another clip, it covers the overlap. |
+| `trim` | At least one of `sourceStartMs` / `sourceEndMs`, within the clip’s source range in context (the take’s own source time, not the voice-over’s). |
+| `speed` | `playbackRate` within the slice speed range; a slower clip stops at the next clip’s start. |
+| `remove` | Removes the clip only, not the recording files. |
 
 ## Submission result
 
