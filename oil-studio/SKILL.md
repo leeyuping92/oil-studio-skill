@@ -8,7 +8,7 @@ description: >
   用 Oil Studio 处理本机录屏工程：录制演示、精剪口播、添加标题或图片、遮盖画面、处理字幕与章节、合成配音和导出；也可以把现成的 MP4/MOV/M4V 导入成工程，
   从中切出一段并在完整视频里核对切点。用户提到 Oil Studio、录屏工程，或要把视频放进 Oil Studio 剪辑时使用。不用于不想进 Oil Studio 的普通视频快剪，或直接编辑工程文件。
 metadata:
-  version: 0.14.6
+  version: 0.14.7
   minAppVersion: 0.3.44
 ---
 
@@ -22,7 +22,7 @@ For an English conversation, read [the English workflow](en/SKILL.en.md) and fol
 
 ## 开始前
 
-1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.14.6 oilstudio status`。
+1. 用本文件 frontmatter 的 `metadata.version` 运行 `OILSTUDIO_SKILL_VERSION=0.14.7 oilstudio status`。
    - 命令不存在：运行 Oil Studio 官网的安装脚本 `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`，运行前告诉用户这是在安装 Oil Studio 命令行。Mac App Store 版会直接装好，装好后重新运行这一步；脚本提示官网版自带命令行时，请用户在 Oil Studio「设置 › AI Agent」里点「安装」，然后停止；提示没有找到 Oil Studio 或版本还不支持时，把提示转告用户并停止。
    - 有 `skill.compatible` 时，若为 false，向用户转达 `skill.action.message` 和 `skill.action.hint` 并停止；为 true 时继续。若为 null，说明版本未被正确提供，重新核对后停止。
    - 没有 `skill.compatible` 表示 App 版本较旧：按语义版本各段数字比较 `app.version` 与本文件的 `minAppVersion`，版本过低请用户升级 Oil Studio 并停止；版本无法取得时说明无法核对，不用 `cli.version` 代替。

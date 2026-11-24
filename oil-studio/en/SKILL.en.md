@@ -11,7 +11,7 @@ description: >
   Not for quick edits of ordinary video files the user does not want in Oil Studio, or for directly changing files inside a project package.
   用 Oil Studio 录制和处理本机的录屏工程：录一段窗口或屏幕的操作演示、精剪口播、收紧停顿、删除操作空档、调整画面缩放、添加标题/图片、遮盖敏感区域、校对或翻译字幕、划分章节、合成 AI 配音并导出成片；也可以把现成视频导入成工程，切出一段并核对切点。
 metadata:
-  version: 0.14.6
+  version: 0.14.7
   minAppVersion: 0.3.44
 ---
 
@@ -25,7 +25,7 @@ Task navigation: [Fine cut](#fine-cut) · [Overlays and redactions](#add-overlay
 
 ## Before starting
 
-1. Run `OILSTUDIO_SKILL_VERSION=0.14.6 oilstudio status`, using this file's frontmatter `metadata.version`.
+1. Run `OILSTUDIO_SKILL_VERSION=0.14.7 oilstudio status`, using this file's frontmatter `metadata.version`.
    - If the command is missing, run the installer from the Oil Studio website, `curl -fsSL https://studio.oiloil.org/agent/install.sh | sh`, and first tell the user that it installs the Oil Studio command line. The Mac App Store edition installs directly; run this step again afterward. If the installer says the website edition includes the command line, ask the user to choose Install in Settings › AI Agent in Oil Studio, then stop. If it says Oil Studio isn't installed or this version isn't supported yet, report that to the user and stop.
    - If `skill.compatible` is present and false, report `skill.action.message` and `skill.action.hint` and stop. If true, continue. If null, check the supplied version and stop.
    - If `skill.compatible` is absent, the app is older. Compare `app.version` with this file's `minAppVersion` numerically, component by component; ask the user to update Oil Studio and stop if it is too old. If the version is unavailable, explain that compatibility could not be checked; do not substitute `cli.version`.

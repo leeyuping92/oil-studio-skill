@@ -42,14 +42,15 @@ oilstudio settings apply <工程> <修改.json> --review
 
 ```sh
 oilstudio export <工程> --out <成片.mp4>
+oilstudio export <工程> --out <竖屏.mp4> --aspect 9:16 --resolution 1080p
 oilstudio export <工程> --out <小体积.mp4> --quality minimal --codec av1 --no-srt
 oilstudio export <工程> --out <预览.gif> --gif-width 640 --gif-fps 15 --no-srt
 oilstudio export <工程> --out <片段.mp4> --output-from-ms 1000 --output-to-ms 6000
 ```
 
-未指定的参数沿用工程已保存的导出设置。命令行参数只作用于本次导出，不修改工程选项。格式由输出扩展名决定，也可用 `--format mp4|gif`，两者必须一致。
+未指定的参数沿用工程已保存的导出设置。命令行参数只作用于本次导出，不修改工程选项。可用 `--aspect 16:9|9:16|1:1|4:3|3:4` 临时覆盖本次导出的画幅比例，无需走 `settings apply` 或修改原工程（工程为无背景 `backdropMode = "none"` 时不可用 `--aspect`）。格式由输出扩展名决定，也可用 `--format mp4|gif`，两者必须一致。
 
-MP4 可指定 `--quality minimal|compact|standard|high`、`--codec h264|hevc|av1`、`--resolution 720p|1080p|1440p|2160p`、`--fps <整数>`。默认编码 `h264` 兼容性最广；`hevc` 同画质体积小约四成且使用硬件编码；`av1` 同画质体积最小（适合视频平台与现代浏览器），使用 CPU 编码故导出较慢，较早款 Mac 的自带播放器可能无法直接打开。`minimal` 是极小档，清晰度和体积需取舍。当前不支持 VP9 或手填 Mbps，不编造这些参数。
+MP4 可指定 `--quality minimal|compact|standard|high`、`--codec h264|hevc|av1`、`--resolution 720p|1080p|1440p|2160p`（按短边对齐，如 `16:9` 1080p 为 `1920×1080`，`9:16` 1080p 为 `1080×1920`）、`--fps <整数>`。默认编码 `h264` 兼容性最广；`hevc` 同画质体积小约四成且使用硬件编码；`av1` 同画质体积最小（适合视频平台与现代浏览器），使用 CPU 编码故导出较慢，较早款 Mac 的自带播放器可能无法直接打开。`minimal` 是极小档，清晰度和体积需取舍。当前不支持 VP9 或手填 Mbps，不编造这些参数。
 
 GIF 使用 `--gif-width <像素>`、`--gif-fps <帧率>`；不接受 MP4 的质量、编码、分辨率参数，也不含音频。`--fps` 可作 GIF 帧率别名，优先 `--gif-fps`。长度和尺寸仍受 App 的现有导出限制。
 

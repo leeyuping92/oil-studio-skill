@@ -42,14 +42,15 @@ Settings are reviewed by group and follow the project's automatic edit switch; `
 
 ```sh
 oilstudio export <project> --out <video.mp4>
+oilstudio export <project> --out <portrait.mp4> --aspect 9:16 --resolution 1080p
 oilstudio export <project> --out <smaller.mp4> --quality minimal --codec av1 --no-srt
 oilstudio export <project> --out <preview.gif> --gif-width 640 --gif-fps 15 --no-srt
 oilstudio export <project> --out <excerpt.mp4> --output-from-ms 1000 --output-to-ms 6000
 ```
 
-Unspecified options use the project's saved export settings. CLI overrides apply only to this export. The extension determines the format; an explicit `--format mp4|gif` must match it.
+Unspecified options use the project's saved export settings. CLI overrides apply only to this export. Use `--aspect 16:9|9:16|1:1|4:3|3:4` to temporarily override the output aspect ratio for this export without calling `settings apply` or modifying the project (`--aspect` is rejected when `backdropMode` is `"none"`). The extension determines the format; an explicit `--format mp4|gif` must match it.
 
-For MP4, use `--quality minimal|compact|standard|high`, `--codec h264|hevc|av1`, `--resolution 720p|1080p|1440p|2160p`, and `--fps <integer>`. `h264` offers the widest compatibility; `hevc` reduces file size by about 40 percent with fast hardware encoding; `av1` produces the smallest files for web browsers and video platforms using CPU encoding (slower to export, and QuickTime on older Macs may not open it directly). Minimal trades clarity for size. VP9 and custom Mbps are not supported; do not invent flags for them.
+For MP4, use `--quality minimal|compact|standard|high`, `--codec h264|hevc|av1`, `--resolution 720p|1080p|1440p|2160p` (aligned to the short edge: e.g., `1920×1080` for `16:9` 1080p and `1080×1920` for `9:16` 1080p), and `--fps <integer>`. `h264` offers the widest compatibility; `hevc` reduces file size by about 40 percent with fast hardware encoding; `av1` produces the smallest files for web browsers and video platforms using CPU encoding (slower to export, and QuickTime on older Macs may not open it directly). Minimal trades clarity for size. VP9 and custom Mbps are not supported; do not invent flags for them.
 
 GIF uses `--gif-width <pixels>` and `--gif-fps <rate>`, without MP4 quality, codec, resolution options, or audio. `--fps` is an alias; `--gif-fps` takes precedence. Existing app duration and size limits still apply.
 
